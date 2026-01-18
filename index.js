@@ -991,6 +991,15 @@
             if ($('dc-enabled')) $('dc-enabled').checked = settings.enabled;
             if ($('dc-palette')) $('dc-palette').value = settings.colorTheme;
             if ($('dc-theme')) $('dc-theme').value = settings.themeMode;
+            if ($('dc-highlight')) $('dc-highlight').checked = settings.highlightMode;
+            if ($('dc-autoscan')) $('dc-autoscan').checked = settings.autoScanOnLoad !== false;
+            if ($('dc-autoscan-new')) $('dc-autoscan-new').checked = settings.autoScanNewMessages !== false;
+            if ($('dc-auto-lock')) $('dc-auto-lock').checked = settings.autoLockDetected !== false;
+            if ($('dc-right-click')) $('dc-right-click').checked = settings.enableRightClick;
+            if ($('dc-legend')) $('dc-legend').checked = settings.showLegend;
+            if ($('dc-disable-narration')) $('dc-disable-narration').checked = settings.disableNarration !== false;
+            if ($('dc-share-global')) $('dc-share-global').checked = settings.shareColorsGlobally || false;
+            if ($('dc-css-effects')) $('dc-css-effects').checked = settings.cssEffects || false;
         }
         updateCharList();
         injectPrompt();
