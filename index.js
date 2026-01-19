@@ -167,6 +167,23 @@
         toastr?.success?.(`Fixed ${fixed} conflicts`);
     }
 
+    function flipColorsForTheme() {
+        const entries = Object.entries(characterColors);
+        if (!entries.length) { toastr?.info?.('No characters to flip'); return; }
+        for (const [, char] of entries) {
+            const [h, s, l] = hexToHsl(char.color);
+            // Flip lightness: light colors become dark, dark become light
+            // Colors with L >= 50 are considered "light", we make them dark (around 100 - L)
+            // Colors with L < 50 are considered "dark", we make them light
+            const newL = 100 - l;
+            // Clamp to reasonable range for readability
+            const clampedL = Math.max(25, Math.min(85, newL));
+            char.color = hslToHex(h, s, clampedL);
+        }
+        saveHistory(); saveData(); updateCharList(); injectPrompt();
+        toastr?.success?.('Colors flipped for theme switch');
+    }
+
     function saveColorPreset() {
         const name = prompt('Preset name:');
         if (!name?.trim()) return;
@@ -858,7 +875,7 @@
                 <hr style="margin:2px 0;opacity:0.2;">
                 <div style="display:flex;gap:4px;"><button id="dc-scan" class="menu_button" style="flex:1;">Scan</button><button id="dc-clear" class="menu_button" style="flex:1;">Clear</button><button id="dc-stats" class="menu_button" style="flex:1;" title="Dialogue statistics">Stats</button></div>
                 <div style="display:flex;gap:4px;"><button id="dc-undo" class="menu_button" style="flex:1;">↶</button><button id="dc-redo" class="menu_button" style="flex:1;">↷</button><button id="dc-fix-conflicts" class="menu_button" style="flex:1;" title="Auto-fix color conflicts">Fix</button></div>
-                <div style="display:flex;gap:4px;"><button id="dc-regen" class="menu_button" style="flex:1;" title="Regenerate all colors">Regen</button><button id="dc-save-preset" class="menu_button" style="flex:1;" title="Save color preset">Preset↓</button><button id="dc-load-preset" class="menu_button" style="flex:1;" title="Load color preset">Preset↑</button></div>
+                <div style="display:flex;gap:4px;"><button id="dc-regen" class="menu_button" style="flex:1;" title="Regenerate all colors">Regen</button><button id="dc-flip-theme" class="menu_button" style="flex:1;" title="Flip colors for Dark↔Light theme switch">☀/🌙</button><button id="dc-save-preset" class="menu_button" style="flex:1;" title="Save color preset">Preset↓</button><button id="dc-load-preset" class="menu_button" style="flex:1;" title="Load color preset">Preset↑</button></div>
                 <div style="display:flex;gap:4px;"><button id="dc-export" class="menu_button" style="flex:1;">Export</button><button id="dc-import" class="menu_button" style="flex:1;">Import</button><button id="dc-export-png" class="menu_button" style="flex:1;" title="Export legend as image">PNG</button></div>
                 <div style="display:flex;gap:4px;"><button id="dc-card" class="menu_button" style="flex:1;" title="Add from card">+Card</button><button id="dc-avatar-color" class="menu_button" style="flex:1;" title="Suggest color from avatar">Avatar</button><button id="dc-save-card" class="menu_button" style="flex:1;" title="Save to card">Save→Card</button><button id="dc-load-card" class="menu_button" style="flex:1;" title="Load from card">Card→Load</button></div>
                 <div style="display:flex;gap:4px;"><button id="dc-del-locked" class="menu_button" style="flex:1;" title="Delete all locked characters">DelLocked</button><button id="dc-del-unlocked" class="menu_button" style="flex:1;" title="Delete all unlocked characters">DelUnlocked</button><button id="dc-reset" class="menu_button" style="flex:1;" title="Reset to default colors">Reset</button></div>
@@ -901,6 +918,7 @@
         $('dc-stats').onclick = showStatsPopup;
         $('dc-fix-conflicts').onclick = autoResolveConflicts;
         $('dc-regen').onclick = regenerateAllColors;
+        $('dc-flip-theme').onclick = flipColorsForTheme;
         $('dc-save-preset').onclick = saveColorPreset;
         $('dc-load-preset').onclick = loadColorPreset;
         $('dc-card').onclick = autoAssignFromCard;
