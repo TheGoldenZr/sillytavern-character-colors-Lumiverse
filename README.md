@@ -18,6 +18,7 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 - **Quick swap** ⇄ - Click two characters to swap their colors
 - **Avatar color extraction** - Auto-suggest colors from character avatar's dominant color
 - **Brightness adjustment** - Global slider for lighter/darker colors
+- **Theme flip** ☀/🌙 - Instantly flip all colors between dark↔light suited variants
 - **Undo/Redo** ↶↷ - Full history with Ctrl+Z/Y shortcuts
 - **Export/Import** - Save and load color schemes as JSON
 - **Export as PNG** - Generate a visual legend image
@@ -100,6 +101,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **Stats** | Show dialogue statistics |
 | **Fix** | Auto-resolve color conflicts |
 | **Regen** | Regenerate all colors |
+| **☀/🌙** | Flip colors for dark↔light theme switch |
 | **Preset↓/↑** | Save/load color presets |
 | **Export/Import** | Backup colors as JSON |
 | **PNG** | Export legend as image |
