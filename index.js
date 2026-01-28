@@ -371,13 +371,13 @@
     }
     function saveData() {
         localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
-        localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols }));
+        localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode }));
     }
     function loadData() {
         characterColors = {};
-        try { const g = JSON.parse(localStorage.getItem('dc_global_settings')); if (g?.thoughtSymbols !== undefined) settings.thoughtSymbols = g.thoughtSymbols; } catch { }
+        try { const g = JSON.parse(localStorage.getItem('dc_global_settings')); if (g?.thoughtSymbols !== undefined) settings.thoughtSymbols = g.thoughtSymbols; if (g?.themeMode !== undefined) settings.themeMode = g.themeMode; } catch { }
         try { const d = JSON.parse(localStorage.getItem(getStorageKey())); if (d?.colors) characterColors = d.colors; if (d?.settings) Object.assign(settings, d.settings); } catch { }
-        try { const g = JSON.parse(localStorage.getItem('dc_global_settings')); if (g?.thoughtSymbols !== undefined) settings.thoughtSymbols = g.thoughtSymbols; } catch { }
+        try { const g = JSON.parse(localStorage.getItem('dc_global_settings')); if (g?.thoughtSymbols !== undefined) settings.thoughtSymbols = g.thoughtSymbols; if (g?.themeMode !== undefined) settings.themeMode = g.themeMode; } catch { }
         colorHistory = [JSON.stringify(characterColors)]; historyIndex = 0;
     }
 
@@ -477,7 +477,9 @@
     function buildPromptInstruction() {
         if (!settings.enabled) return '';
         const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
-        const themeHint = mode === 'dark' ? 'Use light colors.' : 'Use dark colors.';
+        const themeHint = mode === 'dark'
+            ? 'IMPORTANT: Use LIGHT/BRIGHT colors only (high luminance) - pastels, light pinks, light blues, light greens, etc. NEVER use dark colors like brown, maroon, navy, dark green, or any color that would be hard to read on a dark background.'
+            : 'IMPORTANT: Use DARK/DEEP colors only (low luminance) - burgundy, navy, forest green, dark purple, etc. NEVER use light colors like pastel pink, light yellow, cream, or any color that would be hard to read on a light background.';
         const colorList = Object.entries(characterColors).filter(([, v]) => v.locked && v.color).map(([, v]) => `${v.name}=${v.color}${v.style ? ` (${v.style})` : ''}`).join(', ');
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
         let thoughts = '';
