@@ -489,7 +489,7 @@
         const narratorRule = settings.disableNarration ? '' : (settings.narratorColor ? `Narrator: ${settings.narratorColor}.` : '');
         const narratorInBlock = settings.disableNarration ? '' : ' Include Narrator=#RRGGBB if narration is used.';
         const cssEffectsRule = settings.cssEffects ? ` For intense emotion/magic/distortion, use CSS transforms: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase. Wrap in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.` : '';
-        return `[Font Color Rule: Wrap dialogue in <font color=#RRGGBB> tags. ${themeHint} ${colorList ? `LOCKED: ${colorList}.` : ''} ${aliases ? `ALIASES: ${aliases}.` : ''} ${narratorRule} ${thoughts} ${settings.highlightMode ? 'Also add background highlight.' : ''}${cssEffectsRule} Assign unique colors to new characters. At the very END of your response, on its own line, add: [COLORS:Name=#RRGGBB,Name2=#RRGGBB] listing ALL characters who spoke.${narratorInBlock} This will be auto-removed.]`;
+        return `[Font Color Rule: Wrap dialogue in <font color=#RRGGBB> tags. ${themeHint} ${colorList ? `LOCKED: ${colorList}.` : ''} ${aliases ? `ALIASES: ${aliases}.` : ''} ${narratorRule} ${thoughts} ${settings.highlightMode ? 'Also add background highlight.' : ''}${cssEffectsRule} Assign unique colors to new characters. At the very END of your response, on its own line, add: [COLORS:Name=#RRGGBB,Name2=#RRGGBB] listing ALL characters who spoke. If a character uses a different name (username, nickname, alias), include it in parentheses: Name(Username)=#RRGGBB.${narratorInBlock} This will be auto-removed.]`;
     }
 
     function buildColoredPromptPreview() {
@@ -661,6 +661,14 @@
         } catch { }
     }
 
+    function parseNameWithNicknames(rawName) {
+        const match = rawName.match(/^([^(]+)(.*)$/);
+        if (!match) return { name: rawName.trim(), nicknames: [] };
+        const name = match[1].trim();
+        const nicknames = [...rawName.matchAll(/\(([^)]+)\)/g)].map(m => m[1].trim()).filter(Boolean);
+        return { name, nicknames };
+    }
+
     function parseColorBlock(element) {
         const mesText = element.querySelector?.('.mes_text') || element;
         if (!mesText) return false;
@@ -685,7 +693,8 @@
             for (const pair of colorPairs) {
                 const eqIdx = pair.indexOf('=');
                 if (eqIdx === -1) continue;
-                const name = pair.substring(0, eqIdx).trim();
+                const rawName = pair.substring(0, eqIdx).trim();
+                const { name, nicknames } = parseNameWithNicknames(rawName);
                 const color = pair.substring(eqIdx + 1).trim();
                 if (!name || !color || !/^#[a-fA-F0-9]{6}$/i.test(color)) continue;
                 const key = name.toLowerCase();
@@ -695,6 +704,14 @@
                 } else {
                     characterColors[key] = { color, name, locked: false, aliases: [], style: '', dialogueCount: 1 };
                     foundNew = true;
+                }
+                if (nicknames.length) {
+                    characterColors[key].aliases = characterColors[key].aliases || [];
+                    nicknames.forEach(nick => {
+                        if (!characterColors[key].aliases.includes(nick)) {
+                            characterColors[key].aliases.push(nick);
+                        }
+                    });
                 }
             }
         }
@@ -724,7 +741,8 @@
                 for (const pair of colorPairs) {
                     const eqIdx = pair.indexOf('=');
                     if (eqIdx === -1) continue;
-                    const name = pair.substring(0, eqIdx).trim();
+                    const rawName = pair.substring(0, eqIdx).trim();
+                    const { name, nicknames } = parseNameWithNicknames(rawName);
                     const color = pair.substring(eqIdx + 1).trim();
                     if (!name || !color || !/^#[a-fA-F0-9]{6}$/i.test(color)) continue;
                     const key = name.toLowerCase();
@@ -734,6 +752,14 @@
                     } else {
                         characterColors[key] = { color, name, locked: settings.autoLockDetected !== false, aliases: [], style: '', dialogueCount: 1 };
                         foundNew = true;
+                    }
+                    if (nicknames.length) {
+                        characterColors[key].aliases = characterColors[key].aliases || [];
+                        nicknames.forEach(nick => {
+                            if (!characterColors[key].aliases.includes(nick)) {
+                                characterColors[key].aliases.push(nick);
+                            }
+                        });
                     }
                 }
             }
@@ -760,7 +786,8 @@
                 for (const pair of colorPairs) {
                     const eqIdx = pair.indexOf('=');
                     if (eqIdx === -1) continue;
-                    const name = pair.substring(0, eqIdx).trim();
+                    const rawName = pair.substring(0, eqIdx).trim();
+                    const { name, nicknames } = parseNameWithNicknames(rawName);
                     const color = pair.substring(eqIdx + 1).trim();
                     if (!name || !color || !/^#[a-fA-F0-9]{6}$/i.test(color)) continue;
                     const key = name.toLowerCase();
@@ -769,6 +796,14 @@
                         if (!characterColors[key].locked) characterColors[key].color = color;
                     } else {
                         characterColors[key] = { color, name, locked: settings.autoLockDetected !== false, aliases: [], style: '', dialogueCount: 1 };
+                    }
+                    if (nicknames.length) {
+                        characterColors[key].aliases = characterColors[key].aliases || [];
+                        nicknames.forEach(nick => {
+                            if (!characterColors[key].aliases.includes(nick)) {
+                                characterColors[key].aliases.push(nick);
+                            }
+                        });
                     }
                 }
             }
@@ -881,7 +916,7 @@
                 <div style="display:flex;gap:4px;"><button id="dc-export" class="menu_button" style="flex:1;">Export</button><button id="dc-import" class="menu_button" style="flex:1;">Import</button><button id="dc-export-png" class="menu_button" style="flex:1;" title="Export legend as image">PNG</button></div>
                 <div style="display:flex;gap:4px;"><button id="dc-card" class="menu_button" style="flex:1;" title="Add from card">+Card</button><button id="dc-avatar-color" class="menu_button" style="flex:1;" title="Suggest color from avatar">Avatar</button><button id="dc-save-card" class="menu_button" style="flex:1;" title="Save to card">Save→Card</button><button id="dc-load-card" class="menu_button" style="flex:1;" title="Load from card">Card→Load</button></div>
                 <div style="display:flex;gap:4px;"><button id="dc-lock-all" class="menu_button" style="flex:1;" title="Lock all characters">🔒All</button><button id="dc-unlock-all" class="menu_button" style="flex:1;" title="Unlock all characters">🔓All</button><button id="dc-reset" class="menu_button" style="flex:1;" title="Reset to default colors">Reset</button></div>
-                <div style="display:flex;gap:4px;"><button id="dc-del-locked" class="menu_button" style="flex:1;" title="Delete all locked characters">DelLocked</button><button id="dc-del-unlocked" class="menu_button" style="flex:1;" title="Delete all unlocked characters">DelUnlocked</button><button id="dc-del-least" class="menu_button" style="flex:1;" title="Delete characters below dialogue threshold">DelLeast</button></div>
+                <div style="display:flex;gap:4px;"><button id="dc-del-locked" class="menu_button" style="flex:1;" title="Delete all locked characters">DelLocked</button><button id="dc-del-unlocked" class="menu_button" style="flex:1;" title="Delete all unlocked characters">DelUnlocked</button><button id="dc-del-least" class="menu_button" style="flex:1;" title="Delete characters below dialogue threshold">DelLeast</button><button id="dc-del-dupes" class="menu_button" style="flex:1;" title="Delete duplicate colors, keep highest dialogue count">DelDupes</button></div>
                 <input type="file" id="dc-import-file" accept=".json" style="display:none;">
                 <div style="display:flex;gap:4px;"><input type="text" id="dc-search" placeholder="Search characters..." class="text_pole" style="flex:1;padding:3px;"></div>
                 <div style="display:flex;gap:4px;align-items:center;"><label>Sort:</label><select id="dc-sort" class="text_pole" style="flex:1;"><option value="name">Name</option><option value="count">Dialogue Count</option></select></div>
@@ -972,6 +1007,29 @@
             injectPrompt();
             updateCharList();
             toastr?.info?.(`Deleted ${count} characters with <${min} dialogues`);
+        };
+        $('dc-del-dupes').onclick = () => {
+            const colorGroups = {};
+            Object.entries(characterColors).forEach(([k, v]) => {
+                const c = v.color.toLowerCase();
+                if (!colorGroups[c]) colorGroups[c] = [];
+                colorGroups[c].push({ key: k, count: v.dialogueCount || 0 });
+            });
+            let deleted = 0;
+            Object.values(colorGroups).forEach(group => {
+                if (group.length > 1) {
+                    group.sort((a, b) => b.count - a.count);
+                    group.slice(1).forEach(({ key }) => {
+                        delete characterColors[key];
+                        deleted++;
+                    });
+                }
+            });
+            saveHistory();
+            saveData();
+            injectPrompt();
+            updateCharList();
+            toastr?.info?.(`Deleted ${deleted} duplicate-color characters`);
         };
         $('dc-lock-all').onclick = () => { let count = 0; Object.keys(characterColors).forEach(k => { if (!characterColors[k].locked) { characterColors[k].locked = true; count++; } }); saveData(); updateCharList(); toastr?.info?.(`Locked ${count} characters`); };
         $('dc-unlock-all').onclick = () => { let count = 0; Object.keys(characterColors).forEach(k => { if (characterColors[k].locked) { characterColors[k].locked = false; count++; } }); saveData(); updateCharList(); toastr?.info?.(`Unlocked ${count} characters`); };

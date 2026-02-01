@@ -9,6 +9,7 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 ### Core
 - **Auto-coloring** - Instructs the LLM to wrap dialogue in `<font color>` tags
 - **LLM color blocks** - LLM outputs `[COLORS:Name=#RRGGBB,...]` at end of messages for reliable character detection (auto-removed)
+- **Auto-detect nicknames/usernames** - LLM can include nicknames in parentheses: `[COLORS:Alice(xX_Alice_Xx)=#FF0000]` - these are automatically added as character aliases
 - **Per-chat or global colors** - Store colors per character or share across all chats
 - **Auto-lock detected characters** - Automatically lock newly detected characters (default: on)
 - **Right-click/long-press** - Tap and hold (mobile) or right-click (desktop) on colored dialogue to assign it to a character (default: off)
@@ -114,6 +115,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **DelLocked** | Delete all locked characters |
 | **DelUnlocked** | Delete all unlocked characters |
 | **DelLeast** | Delete characters below dialogue threshold |
+| **DelDupes** | Delete duplicate colors, keep highest dialogue count |
 | **🔒** | Lock/unlock character color |
 | **⇄** | Swap colors between characters |
 | **S** | Cycle text style |
