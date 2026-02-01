@@ -109,6 +109,11 @@ Effects are visible in chat but stripped from the prompt context.
 | **Avatar** | Extract color from avatar |
 | **Save→Card** | Save to character card |
 | **Card→Load** | Load from character card |
+| **🔒All/🔓All** | Lock/unlock all characters |
+| **Reset** | Reset unlocked colors |
+| **DelLocked** | Delete all locked characters |
+| **DelUnlocked** | Delete all unlocked characters |
+| **DelLeast** | Delete characters below dialogue threshold |
 | **🔒** | Lock/unlock character color |
 | **⇄** | Swap colors between characters |
 | **S** | Cycle text style |
