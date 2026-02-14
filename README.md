@@ -22,13 +22,16 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 - **Theme flip** ☀/🌙 - Instantly flip all colors between dark↔light suited variants
 - **Undo/Redo** ↶↷ - Full history with Ctrl+Z/Y shortcuts
 - **Export/Import** - Save and load color schemes as JSON
-- **Export as PNG** - Generate a visual legend image
-- **Color presets** - Save/load color presets
+- **Export as PNG** - Generate a theme-aware visual legend image (dark/light background)
+- **Color presets** - Save, load, and delete presets via dropdown UI
 - **Smart color suggestions** - Auto-suggests colors based on character names (e.g., "Rose" → pink)
+- **Color harmony** - Double-click a color input to see complementary, triadic, and analogous suggestions
+- **Custom palettes** - Save your current character colors as a reusable custom palette
 
 ### Palettes
 - Pastel, Neon, Earth, Jewel, Muted, Jade, Forest, Ocean, Sunset, Aurora, Warm, Cool, Berry, Monochrome
 - **Colorblind-friendly:** Protanopia, Deuteranopia, Tritanopia
+- **Custom palettes** - Save and select your own palettes alongside the built-in ones
 
 ### CSS Effects
 *Inspired by [Prolix's Lucid Loom](https://github.com/prolix-oc/ST-Presets)*
@@ -43,18 +46,22 @@ When enabled, instructs the LLM to apply CSS transforms for dramatic effect:
 Effects are visible in chat but stripped from the prompt context.
 
 ### Advanced
-- **Character aliases** - Map multiple names to same color
+- **Character aliases** - Map multiple names to same color, shown as removable chips
 - **Per-character styles** - Bold, italic, or both
+- **Character grouping** - Assign characters to groups, sort by group with visual headers
+- **Batch operations** - Multi-select characters with checkboxes for bulk lock/unlock/delete/style
 - **Narrator color** - Separate color for narration (included in color block)
 - **Thought symbols** - Custom symbols (e.g., `*`, `『』`) for inner thoughts
 - **Highlight mode** - Background highlights + text color
 - **Card integration** - Save/load colors to character card metadata
-- **Conflict resolution** - Auto-fix similar colors
+- **Conflict resolution** - Auto-fix similar colors with detailed feedback on which pairs were fixed
 
 ### Visual
 - **Floating legend** - Toggle overlay showing character→color mapping
 - **Dialogue statistics** - Bar graph of who's talking most
 - **Dialogue count badges** - ⭐ (50+), 💎 (100+) for frequent speakers
+- **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
+- **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
 ## Installation
 
@@ -80,32 +87,42 @@ Effects are visible in chat but stripped from the prompt context.
 
 ## UI Reference
 
+### Display Section
 | Control | Function |
 |---------|----------|
 | **Enable** | Toggle extension on/off |
 | **Highlight mode** | Add background highlights to dialogue |
+| **Show floating legend** | Overlay showing character colors |
+| **CSS effects** | Enable emotion/magic CSS transforms |
+| **Theme** | Auto/Dark/Light mode |
+| **Palette** | Choose from 17 built-in + custom palettes |
+| **+/−** (Palette) | Save current colors as custom palette / Delete custom palette |
+| **Brightness** | Adjust all colors lighter/darker |
+
+### Behavior Section
+| Control | Function |
+|---------|----------|
 | **Auto-scan on chat load** | Scan for characters when opening a chat |
 | **Auto-scan new messages** | Scan each new generated message for colors |
 | **Auto-lock detected characters** | Automatically lock newly detected characters |
 | **Enable right-click context menu** | Enable right-click/long-press color assignment |
-| **Show floating legend** | Overlay showing character colors |
 | **Disable narration** | Exclude narrator from coloring |
 | **Share colors globally** | Use same colors across all chats |
-| **CSS effects** | Enable emotion/magic CSS transforms |
-| **Theme** | Auto/Dark/Light mode |
-| **Palette** | Choose from 17 color palettes |
-| **Brightness** | Adjust all colors lighter/darker |
 | **Narrator** | Set narrator color |
 | **Thoughts** | Symbols for inner thoughts |
+
+### Actions Section
+| Control | Function |
+|---------|----------|
 | **Scan** | Scan messages for color blocks |
 | **Clear** | Remove all characters |
 | **Stats** | Show dialogue statistics |
-| **Fix** | Auto-resolve color conflicts |
+| **Fix** | Auto-resolve color conflicts (reports which pairs were fixed) |
 | **Regen** | Regenerate all colors |
 | **☀/🌙** | Flip colors for dark↔light theme switch |
-| **Preset↓/↑** | Save/load color presets |
+| **Preset Save/Load/Del** | Manage color presets via dropdown |
 | **Export/Import** | Backup colors as JSON |
-| **PNG** | Export legend as image |
+| **PNG** | Export legend as image (theme-aware background) |
 | **+Card** | Add current character |
 | **Avatar** | Extract color from avatar |
 | **Save→Card** | Save to character card |
@@ -116,11 +133,22 @@ Effects are visible in chat but stripped from the prompt context.
 | **DelUnlocked** | Delete all unlocked characters |
 | **DelLeast** | Delete characters below dialogue threshold |
 | **DelDupes** | Delete duplicate colors, keep highest dialogue count |
+
+### Characters Section
+| Control | Function |
+|---------|----------|
+| **Search** | Filter characters by name |
+| **Sort** | Sort by Name, Dialogue Count, or Group |
+| **Batch bar** | Appears when characters are selected: Select All, Deselect All, Delete, Lock, Unlock, Style |
+| **☐** (checkbox) | Select character for batch operations |
 | **🔒** | Lock/unlock character color |
 | **⇄** | Swap colors between characters |
 | **S** | Cycle text style |
 | **+** | Add alias |
+| **G** | Assign character to a group |
 | **×** | Delete character |
+| **Double-click color** | Show color harmony suggestions (complementary, triadic, analogous) |
+| **× on alias chip** | Remove an alias |
 
 ## Auto-Imported Regex Scripts
 
