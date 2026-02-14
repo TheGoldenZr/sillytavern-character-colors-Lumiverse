@@ -371,13 +371,13 @@
     }
     function saveData() {
         localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
-        localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode }));
+        localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness }));
     }
     function loadData() {
         characterColors = {};
-        try { const g = JSON.parse(localStorage.getItem('dc_global_settings')); if (g?.thoughtSymbols !== undefined) settings.thoughtSymbols = g.thoughtSymbols; if (g?.themeMode !== undefined) settings.themeMode = g.themeMode; } catch { }
+        try { const g = JSON.parse(localStorage.getItem('dc_global_settings')); if (g?.thoughtSymbols !== undefined) settings.thoughtSymbols = g.thoughtSymbols; if (g?.themeMode !== undefined) settings.themeMode = g.themeMode; if (g?.colorTheme !== undefined) settings.colorTheme = g.colorTheme; if (g?.brightness !== undefined) settings.brightness = g.brightness; } catch { }
         try { const d = JSON.parse(localStorage.getItem(getStorageKey())); if (d?.colors) characterColors = d.colors; if (d?.settings) Object.assign(settings, d.settings); } catch { }
-        try { const g = JSON.parse(localStorage.getItem('dc_global_settings')); if (g?.thoughtSymbols !== undefined) settings.thoughtSymbols = g.thoughtSymbols; if (g?.themeMode !== undefined) settings.themeMode = g.themeMode; } catch { }
+        try { const g = JSON.parse(localStorage.getItem('dc_global_settings')); if (g?.thoughtSymbols !== undefined) settings.thoughtSymbols = g.thoughtSymbols; if (g?.themeMode !== undefined) settings.themeMode = g.themeMode; if (g?.colorTheme !== undefined) settings.colorTheme = g.colorTheme; if (g?.brightness !== undefined) settings.brightness = g.brightness; } catch { }
         colorHistory = [JSON.stringify(characterColors)]; historyIndex = 0;
     }
 
