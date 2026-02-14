@@ -37,6 +37,13 @@
     transform: scale(1.15);
 }
 
+.dc-batch-check {
+    width: 10px !important;
+    height: 10px !important;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
 .dc-batch-selected {
     outline: 2px solid var(--SmartThemeQuoteColor) !important;
 }
@@ -103,8 +110,8 @@
     }
 
     #dc-ext .dc-batch-check {
-        width: 18px !important;
-        height: 18px !important;
+        width: 14px !important;
+        height: 14px !important;
     }
 
     #dc-ext details summary {

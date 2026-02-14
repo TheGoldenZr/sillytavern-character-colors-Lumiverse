@@ -954,7 +954,7 @@
             return groupHeader + `
             <div class="dc-char ${swapMode === k ? 'dc-swap-selected' : ''} ${selectedKeys.has(k) ? 'dc-batch-selected' : ''}" data-key="${k}" style="display:flex;flex-direction:column;gap:2px;margin:3px 0;padding:2px;border-radius:4px;${swapMode === k ? 'background:var(--SmartThemeQuoteColor);' : ''}${selectedKeys.has(k) ? 'outline:2px solid var(--SmartThemeQuoteColor);' : ''}">
                 <div style="display:flex;align-items:center;gap:4px;">
-                    <input type="checkbox" class="dc-batch-check" data-key="${k}" ${selectedKeys.has(k) ? 'checked' : ''} style="width:14px;height:14px;margin:0;">
+                    <input type="checkbox" class="dc-batch-check" data-key="${k}" ${selectedKeys.has(k) ? 'checked' : ''} style="width:10px;height:10px;margin:0;">
                     <span style="width:8px;height:8px;border-radius:50%;background:${v.color};flex-shrink:0;"></span>
                     <input type="color" value="${v.color}" data-key="${k}" class="dc-color-input" style="width:18px;height:18px;padding:0;border:none;cursor:pointer;">
                     <span style="flex:1;color:${v.color};font-size:0.85em;" title="Dialogues: ${v.dialogueCount || 0}${v.aliases?.length ? '\nAliases: ' + v.aliases.join(', ') : ''}${v.group ? '\nGroup: ' + v.group : ''}">${v.name}${v.style ? ` [${v.style[0].toUpperCase()}]` : ''}${getBadge(v.dialogueCount || 0)}</span>
