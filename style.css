@@ -37,24 +37,30 @@
     transform: scale(1.15);
 }
 
-.dc-batch-check {
+#dc-ext .dc-char input.dc-batch-check[type="checkbox"] {
+    all: unset !important;
     -webkit-appearance: none !important;
     appearance: none !important;
+    display: inline-block !important;
     width: 10px !important;
     height: 10px !important;
     min-width: 10px !important;
     min-height: 10px !important;
-    flex-shrink: 0;
-    cursor: pointer;
-    border: 1px solid var(--SmartThemeBorderColor, #888);
-    border-radius: 2px;
-    background: transparent;
-    position: relative;
+    max-width: 10px !important;
+    max-height: 10px !important;
+    flex-shrink: 0 !important;
+    cursor: pointer !important;
+    border: 1px solid var(--SmartThemeBorderColor, #888) !important;
+    border-radius: 2px !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
 }
 
-.dc-batch-check:checked {
-    background: var(--SmartThemeQuoteColor, #5a9);
-    border-color: var(--SmartThemeQuoteColor, #5a9);
+#dc-ext .dc-char input.dc-batch-check[type="checkbox"]:checked {
+    background: var(--SmartThemeQuoteColor, #5a9) !important;
+    border-color: var(--SmartThemeQuoteColor, #5a9) !important;
 }
 
 .dc-batch-selected {
@@ -122,11 +128,13 @@
         height: 28px !important;
     }
 
-    #dc-ext .dc-batch-check {
-        width: 12px !important;
-        height: 12px !important;
-        min-width: 12px !important;
-        min-height: 12px !important;
+    #dc-ext .dc-char input.dc-batch-check[type="checkbox"] {
+        width: 14px !important;
+        height: 14px !important;
+        min-width: 14px !important;
+        min-height: 14px !important;
+        max-width: 14px !important;
+        max-height: 14px !important;
     }
 
     #dc-ext details summary {
