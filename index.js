@@ -990,8 +990,10 @@
             <div class="dc-char ${swapMode === k ? 'dc-swap-selected' : ''} ${selectedKeys.has(k) ? 'dc-batch-selected' : ''}" data-key="${k}" style="display:flex;flex-direction:column;gap:2px;margin:3px 0;padding:2px;border-radius:4px;${swapMode === k ? 'background:var(--SmartThemeQuoteColor);' : ''}${selectedKeys.has(k) ? 'outline:2px solid var(--SmartThemeQuoteColor);' : ''}">
                 <div style="display:flex;align-items:center;gap:4px;">
                     <input type="checkbox" class="dc-batch-check" data-key="${k}" ${selectedKeys.has(k) ? 'checked' : ''} style="width:10px;height:10px;margin:0;">
-                    <span class="dc-color-dot" style="width:8px;height:8px;border-radius:50%;background:${v.color};flex-shrink:0;cursor:pointer;"></span>
-                    <input type="color" value="${v.color}" data-key="${k}" class="dc-color-input" style="width:18px;height:18px;padding:0;border:none;cursor:pointer;">
+                    <span class="dc-color-swatch" style="position:relative;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">
+                        <span class="dc-color-dot" style="width:8px;height:8px;border-radius:50%;background:${v.color};cursor:pointer;"></span>
+                        <input type="color" value="${v.color}" data-key="${k}" class="dc-color-input" style="width:18px;height:18px;padding:0;border:none;cursor:pointer;">
+                    </span>
                     <span style="flex:1;color:${v.color};font-size:0.85em;" title="Dialogues: ${v.dialogueCount || 0}${v.aliases?.length ? '\nAliases: ' + escapeHtml(v.aliases.join(', ')) : ''}${v.group ? '\nGroup: ' + escapeHtml(v.group) : ''}">${escapeHtml(v.name)}${v.style ? ` [${v.style[0].toUpperCase()}]` : ''}${getBadge(v.dialogueCount || 0)}</span>
                     <span style="font-size:0.7em;opacity:0.6;">${v.dialogueCount || 0}</span>
                     <button class="dc-lock menu_button" data-key="${k}" style="padding:1px 4px;font-size:0.7em;" title="Lock color">${v.locked ? '🔒' : '🔓'}</button>
