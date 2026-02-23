@@ -333,6 +333,9 @@
         popup.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;background:var(--SmartThemeBlurTintColor, #1a1a2e);border:1px solid var(--SmartThemeBorderColor, #4a4a6a);border-radius:6px;padding:8px;z-index:10001;display:flex;gap:6px;align-items:center;box-shadow:0 4px 12px rgba(0,0,0,0.5);`;
         popup.innerHTML = suggestions.map(s => `<div class="dc-harmony-swatch" data-color="${s.color}" title="${s.label}: ${s.color}" style="width:24px;height:24px;border-radius:4px;background:${s.color};cursor:pointer;border:2px solid transparent;transition:border-color 0.15s;"></div>`).join('');
         document.body.appendChild(popup);
+        const popupRect = popup.getBoundingClientRect();
+        if (popupRect.right > window.innerWidth) popup.style.left = (window.innerWidth - popupRect.width - 8) + 'px';
+        if (popupRect.bottom > window.innerHeight) popup.style.top = (window.innerHeight - popupRect.height - 8) + 'px';
         popup.querySelectorAll('.dc-harmony-swatch').forEach(swatch => {
             swatch.onmouseenter = () => { swatch.style.borderColor = '#fff'; };
             swatch.onmouseleave = () => { swatch.style.borderColor = 'transparent'; };
@@ -458,18 +461,21 @@
             menu.id = 'dc-context-menu';
             const x = e.clientX || e.touches?.[0]?.clientX || 100;
             const y = e.clientY || e.touches?.[0]?.clientY || 100;
-            menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;background:#1a1a2e;border:1px solid #4a4a6a;border-radius:6px;padding:8px;z-index:10001;min-width:180px;color:#e0e0e0;box-shadow:0 4px 12px rgba(0,0,0,0.5);`;
+            menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:6px;padding:8px;z-index:10001;min-width:180px;color:var(--SmartThemeTextColor);box-shadow:0 4px 12px rgba(0,0,0,0.5);`;
             menu.innerHTML = `
                 <div style="font-size:0.8em;opacity:0.7;margin-bottom:6px;">"${escapeHtml(text)}"</div>
                 <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
                     <span style="width:12px;height:12px;border-radius:50%;background:${color};"></span>
                     <input type="color" id="dc-ctx-color" value="${color}" style="width:24px;height:20px;border:none;">
-                    <input type="text" id="dc-ctx-name" placeholder="Character name" class="text_pole" style="flex:1;padding:3px;font-size:0.85em;background:#2a2a4e;color:#e0e0e0;border:1px solid #4a4a6a;">
+                    <input type="text" id="dc-ctx-name" placeholder="Character name" class="text_pole" style="flex:1;padding:3px;font-size:0.85em;">
                 </div>
-                <button id="dc-ctx-assign" class="menu_button" style="width:100%;margin-bottom:4px;background:#3a3a5e;">Assign to Character</button>
-                <button id="dc-ctx-close" class="menu_button" style="width:100%;background:#3a3a5e;">Cancel</button>
+                <button id="dc-ctx-assign" class="menu_button" style="width:100%;margin-bottom:4px;">Assign to Character</button>
+                <button id="dc-ctx-close" class="menu_button" style="width:100%;">Cancel</button>
             `;
             document.body.appendChild(menu);
+            const menuRect = menu.getBoundingClientRect();
+            if (menuRect.right > window.innerWidth) menu.style.left = (window.innerWidth - menuRect.width - 8) + 'px';
+            if (menuRect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - menuRect.height - 8) + 'px';
             menu.querySelector('#dc-ctx-close').onclick = () => menu.remove();
             menu.querySelector('#dc-ctx-assign').onclick = () => {
                 const nameInput = menu.querySelector('#dc-ctx-name');
@@ -683,7 +689,7 @@
             const left = savedPos.left;
             const right = savedPos.right || 10;
 
-            legend.style.cssText = `position:fixed;top:${top}px;${left !== undefined ? `left:${left}px;` : `right:${right}px;`}background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:8px;padding:8px;z-index:9999;font-size:0.8em;max-width:150px;display:none;cursor:move;user-select:none;`;
+            legend.style.cssText = `position:fixed;top:${top}px;${left !== undefined ? `left:${left}px;` : `right:${right}px;`}background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:8px;padding:8px;z-index:9999;font-size:0.8em;max-width:150px;max-height:60vh;overflow-y:auto;display:none;cursor:move;user-select:none;`;
 
             let isDragging = false;
             let startX, startY, startLeft, startTop;
@@ -771,6 +777,8 @@
         popup.innerHTML = `<div style="font-weight:bold;margin-bottom:8px;">Dialogue Statistics</div>${html}<button class="dc-close-popup menu_button" style="margin-top:10px;width:100%;">Close</button>`;
         popup.querySelector('.dc-close-popup').onclick = () => popup.remove();
         document.body.appendChild(popup);
+        const closePopup = e => { if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('mousedown', closePopup); } };
+        setTimeout(() => document.addEventListener('mousedown', closePopup), 10);
     }
 
     function saveToCard() {
@@ -970,7 +978,7 @@
                 </div>
                 ${aliasChips ? `<div style="display:flex;flex-wrap:wrap;gap:2px;padding-left:26px;">${aliasChips}</div>` : ''}
             </div>`;
-        }).join('') : '<small style="opacity:0.6;">No characters</small>';
+        }).join('') : `<small style="opacity:0.6;">${searchTerm ? 'No matches' : 'No characters'}</small>`;
 
         // Color input + double-click for harmony popup
         list.querySelectorAll('.dc-color-input').forEach(i => {
@@ -996,8 +1004,23 @@
         });
         list.querySelectorAll('.dc-alias').forEach(b => {
             b.onclick = () => {
-                const alias = prompt('Add alias for ' + characterColors[b.dataset.key].name + ':');
-                if (alias?.trim()) { characterColors[b.dataset.key].aliases = characterColors[b.dataset.key].aliases || []; characterColors[b.dataset.key].aliases.push(alias.trim()); saveData(); injectPrompt(); updateCharList(); }
+                const row = b.closest('.dc-char');
+                const existing = row.querySelector('.dc-inline-input');
+                if (existing) { existing.remove(); return; }
+                const inputRow = document.createElement('div');
+                inputRow.className = 'dc-inline-input';
+                inputRow.style.cssText = 'display:flex;gap:4px;padding:2px 0 2px 26px;';
+                inputRow.innerHTML = `<input type="text" class="text_pole" placeholder="Alias name..." style="flex:1;padding:2px 4px;font-size:0.8em;"><button class="menu_button" style="padding:2px 6px;font-size:0.8em;">Add</button>`;
+                row.appendChild(inputRow);
+                const inp = inputRow.querySelector('input');
+                inp.focus();
+                const submit = () => {
+                    const alias = inp.value.trim();
+                    if (alias) { characterColors[b.dataset.key].aliases = characterColors[b.dataset.key].aliases || []; characterColors[b.dataset.key].aliases.push(alias); saveData(); injectPrompt(); updateCharList(); }
+                    else inputRow.remove();
+                };
+                inputRow.querySelector('button').onclick = submit;
+                inp.onkeydown = e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') inputRow.remove(); };
             };
         });
         // Phase 5B: Alias chip removal
@@ -1015,13 +1038,25 @@
         // Phase 6B: Group assignment
         list.querySelectorAll('.dc-group').forEach(b => {
             b.onclick = () => {
+                const row = b.closest('.dc-char');
+                const existing = row.querySelector('.dc-inline-input');
+                if (existing) { existing.remove(); return; }
                 const key = b.dataset.key;
                 const current = characterColors[key]?.group || '';
-                const group = prompt(`Group for ${characterColors[key].name}:`, current);
-                if (group !== null) {
-                    characterColors[key].group = group.trim();
+                const inputRow = document.createElement('div');
+                inputRow.className = 'dc-inline-input';
+                inputRow.style.cssText = 'display:flex;gap:4px;padding:2px 0 2px 26px;';
+                inputRow.innerHTML = `<input type="text" class="text_pole" placeholder="Group name..." value="${escapeHtml(current)}" style="flex:1;padding:2px 4px;font-size:0.8em;"><button class="menu_button" style="padding:2px 6px;font-size:0.8em;">Set</button>`;
+                row.appendChild(inputRow);
+                const inp = inputRow.querySelector('input');
+                inp.focus();
+                inp.select();
+                const submit = () => {
+                    characterColors[key].group = inp.value.trim();
                     saveData(); updateCharList();
-                }
+                };
+                inputRow.querySelector('button').onclick = submit;
+                inp.onkeydown = e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') inputRow.remove(); };
             };
         });
         // Phase 6A: Batch selection checkboxes
@@ -1041,7 +1076,16 @@
     // Phase 6A: Show/hide batch bar based on selection
     function updateBatchBar() {
         const bar = document.getElementById('dc-batch-bar');
-        if (bar) bar.style.display = selectedKeys.size > 0 ? 'flex' : 'none';
+        if (!bar) return;
+        if (selectedKeys.size > 0) {
+            bar.style.display = 'flex';
+            bar.style.opacity = '1';
+            bar.style.maxHeight = '100px';
+        } else {
+            bar.style.opacity = '0';
+            bar.style.maxHeight = '0';
+            setTimeout(() => { if (!selectedKeys.size) bar.style.display = 'none'; }, 150);
+        }
     }
 
     function autoAssignFromCard() {
@@ -1116,10 +1160,13 @@
                         <div style="display:flex;gap:4px;"><button id="dc-scan" class="menu_button" style="flex:1;">Scan</button><button id="dc-clear" class="menu_button" style="flex:1;">Clear</button><button id="dc-stats" class="menu_button" style="flex:1;" title="Dialogue statistics">Stats</button></div>
                         <div style="display:flex;gap:4px;"><button id="dc-undo" class="menu_button" style="flex:1;">&#8630;</button><button id="dc-redo" class="menu_button" style="flex:1;">&#8631;</button><button id="dc-fix-conflicts" class="menu_button" style="flex:1;" title="Auto-fix color conflicts">Fix</button></div>
                         <div style="display:flex;gap:4px;"><button id="dc-regen" class="menu_button" style="flex:1;" title="Regenerate all colors">Regen</button><button id="dc-flip-theme" class="menu_button" style="flex:1;" title="Flip colors for Dark/Light theme switch">&#9728;/&#127769;</button></div>
+                        <hr style="margin:4px 0;opacity:0.15;">
                         <div style="display:flex;gap:4px;align-items:center;"><input type="text" id="dc-preset-name" placeholder="Preset name..." class="text_pole" style="flex:1;padding:3px;"><button id="dc-save-preset" class="menu_button" style="padding:3px 8px;" title="Save preset">Save</button></div>
                         <div style="display:flex;gap:4px;align-items:center;"><select id="dc-preset-select" class="text_pole" style="flex:1;"><option value="">-- Select Preset --</option></select><button id="dc-load-preset" class="menu_button" style="padding:3px 8px;" title="Load preset">Load</button><button id="dc-delete-preset" class="menu_button" style="padding:3px 8px;" title="Delete preset">Del</button></div>
+                        <hr style="margin:4px 0;opacity:0.15;">
                         <div style="display:flex;gap:4px;"><button id="dc-export" class="menu_button" style="flex:1;">Export</button><button id="dc-import" class="menu_button" style="flex:1;">Import</button><button id="dc-export-png" class="menu_button" style="flex:1;" title="Export legend as image">PNG</button></div>
                         <div style="display:flex;gap:4px;"><button id="dc-card" class="menu_button" style="flex:1;" title="Add from card">+Card</button><button id="dc-avatar-color" class="menu_button" style="flex:1;" title="Suggest color from avatar">Avatar</button><button id="dc-save-card" class="menu_button" style="flex:1;" title="Save to card">Save&rarr;Card</button><button id="dc-load-card" class="menu_button" style="flex:1;" title="Load from card">Card&rarr;Load</button></div>
+                        <hr style="margin:4px 0;opacity:0.15;">
                         <div style="display:flex;gap:4px;"><button id="dc-lock-all" class="menu_button" style="flex:1;" title="Lock all characters">🔒All</button><button id="dc-unlock-all" class="menu_button" style="flex:1;" title="Unlock all characters">🔓All</button><button id="dc-reset" class="menu_button" style="flex:1;" title="Reset to default colors">Reset</button></div>
                         <div style="display:flex;gap:4px;"><button id="dc-del-locked" class="menu_button" style="flex:1;" title="Delete all locked characters">DelLocked</button><button id="dc-del-unlocked" class="menu_button" style="flex:1;" title="Delete all unlocked characters">DelUnlocked</button><button id="dc-del-least" class="menu_button" style="flex:1;" title="Delete characters below dialogue threshold">DelLeast</button><button id="dc-del-dupes" class="menu_button" style="flex:1;" title="Delete duplicate colors, keep highest dialogue count">DelDupes</button></div>
                         <input type="file" id="dc-import-file" accept=".json" style="display:none;">
@@ -1140,7 +1187,7 @@
                             <button id="dc-batch-style" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Style</button>
                         </div>
                         <small>Characters: <span id="dc-count">0</span> (⭐=50+, 💎=100+)</small>
-                        <div id="dc-char-list" style="max-height:200px;overflow-y:auto;"></div>
+                        <div id="dc-char-list" style="max-height:300px;overflow-y:auto;"></div>
                     </div>
                 </details>
                 <hr style="margin:2px 0;opacity:0.2;">

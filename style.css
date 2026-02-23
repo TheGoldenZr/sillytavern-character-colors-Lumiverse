@@ -38,7 +38,6 @@
 }
 
 #dc-ext .dc-char input.dc-batch-check[type="checkbox"] {
-    all: unset !important;
     -webkit-appearance: none !important;
     appearance: none !important;
     display: inline-block !important;
@@ -56,6 +55,12 @@
     padding: 0 !important;
     margin: 0 !important;
     box-sizing: border-box !important;
+    outline: none !important;
+}
+
+#dc-ext .dc-char input.dc-batch-check[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--SmartThemeQuoteColor, #5a9) !important;
+    outline-offset: 1px !important;
 }
 
 #dc-ext .dc-char input.dc-batch-check[type="checkbox"]:checked {
@@ -65,6 +70,25 @@
 
 .dc-batch-selected {
     outline: 2px solid var(--SmartThemeQuoteColor) !important;
+}
+
+#dc-batch-bar {
+    transition: opacity 0.15s, max-height 0.15s;
+    overflow: hidden;
+}
+
+.dc-swap-selected {
+    animation: dc-swap-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes dc-swap-pulse {
+    from { outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 0px; }
+    to { outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 2px; }
+}
+
+#dc-ext .dc-char .menu_button:hover {
+    background: var(--SmartThemeBlurTintColor);
+    opacity: 0.85;
 }
 
 .dc-alias-chip {
