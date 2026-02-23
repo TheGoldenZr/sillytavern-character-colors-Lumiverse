@@ -144,7 +144,7 @@
         const theme = COLOR_THEMES[settings.colorTheme] || COLOR_THEMES.pastel;
         const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
         const isDark = mode === 'dark';
-        return theme.map(([h, s, l]) => hslToHex(h, s, isDark ? Math.min(l + 15, 85) : Math.max(l - 15, 35)));
+        return theme.map(([h, s, l]) => hslToHex(h, s, (isDark ? Math.min(l + 15, 85) : Math.max(l - 15, 35)) + settings.brightness));
     }
 
     function applyBrightnessToHex(hex) {
@@ -895,7 +895,7 @@
             const { name, nicknames } = parseNameWithNicknames(rawName);
             const rawColor = pair.substring(eqIdx + 1).trim();
             if (!name || !rawColor || !/^#[a-fA-F0-9]{6}$/i.test(rawColor)) continue;
-            const color = applyBrightnessToHex(rawColor);
+            const color = rawColor;
             const key = name.toLowerCase();
             if (characterColors[key]) {
                 characterColors[key].dialogueCount = (characterColors[key].dialogueCount || 0) + 1;
