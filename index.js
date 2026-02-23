@@ -682,7 +682,7 @@
     };
 
     function buildPromptInstruction() {
-        if (!settings.enabled || !Object.keys(characterColors).length) return '';
+        if (!settings.enabled) return '';
         const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
         const colorList = Object.entries(characterColors).filter(([, v]) => v.locked && v.color).map(([, v]) => `${v.name}=${v.color}${v.style ? ` (${v.style})` : ''}`).join(', ');
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
