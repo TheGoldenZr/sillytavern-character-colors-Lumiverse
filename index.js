@@ -682,7 +682,7 @@
     };
 
     function buildPromptInstruction() {
-        if (!settings.enabled) return '';
+        if (!settings.enabled || !Object.keys(characterColors).length) return '';
         const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
         const colorList = Object.entries(characterColors).filter(([, v]) => v.locked && v.color).map(([, v]) => `${v.name}=${v.color}${v.style ? ` (${v.style})` : ''}`).join(', ');
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
@@ -701,7 +701,7 @@
         parts.push('Give new characters unique colors.');
         parts.push('End your response with: [COLORS:Name=#RRGGBB,Name2=#RRGGBB] for all speakers.');
         if (!settings.disableNarration) parts.push('Include Narrator=#RRGGBB if narration is used.');
-        parts.push('Include nicknames as Name(Nick)=#RRGGBB. This line is auto-removed.]');
+        parts.push('Include nicknames as Name(Nick)=#RRGGBB.]');
         return parts.join(' ');
     }
 
