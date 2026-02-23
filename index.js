@@ -116,7 +116,7 @@
                 }
                 const base = palette[Math.floor(Math.random() * palette.length)];
                 const [h, s, l] = hexToHsl(base);
-                return hslToHex((h + Math.random() * 60 - 30 + 360) % 360, s, l);
+                return hslToHex((h + Math.random() * 60 - 30 + 360) % 360, s, l + settings.brightness);
             }
         }
         const theme = COLOR_THEMES[settings.colorTheme] || COLOR_THEMES.pastel;
@@ -128,29 +128,11 @@
         const isDark = cachedIsDark;
         for (const [h, s, l] of theme) {
             const adjustedL = isDark ? Math.min(l + 15, 85) : Math.max(l - 15, 35);
-            const color = hslToHex(h, s, adjustedL);
+            const color = hslToHex(h, s, adjustedL + settings.brightness);
             if (!usedColors.includes(color)) return color;
         }
         const [h, s, l] = theme[Math.floor(Math.random() * theme.length)];
-        return hslToHex((h + Math.random() * 60 - 30 + 360) % 360, s, isDark ? 75 : 40);
-    }
-
-    function getPaletteHexColors() {
-        if (settings.colorTheme?.startsWith('custom:')) {
-            const paletteName = settings.colorTheme.slice(7);
-            const customs = getCustomPalettes();
-            return customs[paletteName] || [];
-        }
-        const theme = COLOR_THEMES[settings.colorTheme] || COLOR_THEMES.pastel;
-        const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
-        const isDark = mode === 'dark';
-        return theme.map(([h, s, l]) => hslToHex(h, s, (isDark ? Math.min(l + 15, 85) : Math.max(l - 15, 35)) + settings.brightness));
-    }
-
-    function applyBrightnessToHex(hex) {
-        if (!settings.brightness) return hex;
-        const [h, s, l] = hexToHsl(hex);
-        return hslToHex(h, s, l + settings.brightness);
+        return hslToHex((h + Math.random() * 60 - 30 + 360) % 360, s, (isDark ? 75 : 40) + settings.brightness);
     }
 
     // Phase 3B: Optimized conflict check with pre-computed HSL and early-out
@@ -183,7 +165,7 @@
     function suggestColorForName(name) {
         const n = name.toLowerCase();
         for (const [colorName, hue] of COLOR_NAME_MAP) {
-            if (n.includes(colorName)) return hslToHex(hue, 70, 50);
+            if (n.includes(colorName)) return hslToHex(hue, 70, 50 + settings.brightness);
         }
         return null;
     }
@@ -984,10 +966,6 @@
         saveHistory(); saveData(); updateCharList(); injectPrompt();
     }
 
-    function colorThoughts(element) {
-        // Disabled - let the AI handle thought coloring via prompt instruction
-    }
-
     // Phase 5B: Alias chips, Phase 6A: Batch checkboxes, Phase 6B: Group headers, Phase 5D: Harmony on dblclick
     function updateCharList() {
         const list = document.getElementById('dc-char-list'); if (!list) return;
@@ -1271,7 +1249,7 @@
         $('dc-narrator').oninput = e => { settings.narratorColor = e.target.value; saveData(); injectPrompt(); };
         $('dc-narrator-clear').onclick = () => { settings.narratorColor = ''; $('dc-narrator').value = '#888888'; saveData(); injectPrompt(); };
         $('dc-thought-symbols').oninput = e => { settings.thoughtSymbols = e.target.value; saveData(); injectPrompt(); };
-        $('dc-thought-add').onclick = () => { const s = prompt('Add thought symbol (e.g., *, 「, 『):'); if (s?.trim()) { settings.thoughtSymbols = (settings.thoughtSymbols || '') + s.trim(); $('dc-thought-symbols').value = settings.thoughtSymbols; saveData(); injectPrompt(); document.querySelectorAll('.mes').forEach(m => colorThoughts(m)); } };
+        $('dc-thought-add').onclick = () => { const s = prompt('Add thought symbol (e.g., *, 「, 『):'); if (s?.trim()) { settings.thoughtSymbols = (settings.thoughtSymbols || '') + s.trim(); $('dc-thought-symbols').value = settings.thoughtSymbols; saveData(); injectPrompt(); } };
         $('dc-thought-clear').onclick = () => { settings.thoughtSymbols = ''; $('dc-thought-symbols').value = ''; saveData(); injectPrompt(); };
         $('dc-prompt-depth').oninput = e => { settings.promptDepth = parseInt(e.target.value) || 0; saveData(); injectPrompt(); };
         $('dc-scan').onclick = scanAllMessages;
