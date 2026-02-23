@@ -135,6 +135,24 @@
         return hslToHex((h + Math.random() * 60 - 30 + 360) % 360, s, isDark ? 75 : 40);
     }
 
+    function getPaletteHexColors() {
+        if (settings.colorTheme?.startsWith('custom:')) {
+            const paletteName = settings.colorTheme.slice(7);
+            const customs = getCustomPalettes();
+            return customs[paletteName] || [];
+        }
+        const theme = COLOR_THEMES[settings.colorTheme] || COLOR_THEMES.pastel;
+        const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
+        const isDark = mode === 'dark';
+        return theme.map(([h, s, l]) => hslToHex(h, s, isDark ? Math.min(l + 15, 85) : Math.max(l - 15, 35)));
+    }
+
+    function applyBrightnessToHex(hex) {
+        if (!settings.brightness) return hex;
+        const [h, s, l] = hexToHsl(hex);
+        return hslToHex(h, s, l);
+    }
+
     // Phase 3B: Optimized conflict check with pre-computed HSL and early-out
     function checkColorConflicts() {
         const colors = Object.entries(characterColors);
@@ -658,7 +676,10 @@
         const narratorRule = settings.disableNarration ? '' : (settings.narratorColor ? `Narrator: ${settings.narratorColor}.` : '');
         const narratorInBlock = settings.disableNarration ? '' : ' Include Narrator=#RRGGBB if narration is used.';
         const cssEffectsRule = settings.cssEffects ? ` For intense emotion/magic/distortion, use CSS transforms: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase. Wrap in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.` : '';
-        return `[Font Color Rule: Wrap dialogue in <font color=#RRGGBB> tags. ${themeHint} ${colorList ? `LOCKED: ${colorList}.` : ''} ${aliases ? `ALIASES: ${aliases}.` : ''} ${narratorRule} ${thoughts} ${settings.highlightMode ? 'Also add background highlight.' : ''}${cssEffectsRule} Assign unique colors to new characters. At the very END of your response, on its own line, add: [COLORS:Name=#RRGGBB,Name2=#RRGGBB] listing ALL characters who spoke. If a character uses a different name (username, nickname, alias), include it in parentheses: Name(Username)=#RRGGBB.${narratorInBlock} This will be auto-removed.]`;
+        const usedColors = new Set(Object.values(characterColors).map(c => c.color));
+        const paletteColors = getPaletteHexColors().filter(c => !usedColors.has(c));
+        const paletteHint = paletteColors.length ? ` PREFERRED colors for new characters: ${paletteColors.join(', ')}.` : '';
+        return `[Font Color Rule: Wrap dialogue in <font color=#RRGGBB> tags. ${themeHint} ${colorList ? `LOCKED: ${colorList}.` : ''} ${aliases ? `ALIASES: ${aliases}.` : ''} ${narratorRule} ${thoughts} ${settings.highlightMode ? 'Also add background highlight.' : ''}${cssEffectsRule}${paletteHint} Assign unique colors to new characters. At the very END of your response, on its own line, add: [COLORS:Name=#RRGGBB,Name2=#RRGGBB] listing ALL characters who spoke. If a character uses a different name (username, nickname, alias), include it in parentheses: Name(Username)=#RRGGBB.${narratorInBlock} This will be auto-removed.]`;
     }
 
     function buildColoredPromptPreview() {
@@ -847,8 +868,9 @@
             if (eqIdx === -1) continue;
             const rawName = pair.substring(0, eqIdx).trim();
             const { name, nicknames } = parseNameWithNicknames(rawName);
-            const color = pair.substring(eqIdx + 1).trim();
-            if (!name || !color || !/^#[a-fA-F0-9]{6}$/i.test(color)) continue;
+            const rawColor = pair.substring(eqIdx + 1).trim();
+            if (!name || !rawColor || !/^#[a-fA-F0-9]{6}$/i.test(rawColor)) continue;
+            const color = applyBrightnessToHex(rawColor);
             const key = name.toLowerCase();
             if (characterColors[key]) {
                 characterColors[key].dialogueCount = (characterColors[key].dialogueCount || 0) + 1;
@@ -1217,7 +1239,7 @@
         $('dc-share-global').onchange = e => { settings.shareColorsGlobally = e.target.checked; saveData(); loadData(); updateCharList(); injectPrompt(); };
         $('dc-css-effects').onchange = e => { settings.cssEffects = e.target.checked; saveData(); injectPrompt(); };
         $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); saveData(); injectPrompt(); };
-        $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); };
+        $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
         $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; saveData(); invalidateThemeCache(); injectPrompt(); };
         $('dc-narrator').oninput = e => { settings.narratorColor = e.target.value; saveData(); injectPrompt(); };
         $('dc-narrator-clear').onclick = () => { settings.narratorColor = ''; $('dc-narrator').value = '#888888'; saveData(); injectPrompt(); };
