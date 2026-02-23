@@ -661,25 +661,48 @@
         }
     }
 
+    const PALETTE_DESCRIPTIONS = {
+        pastel: 'Use soft pastel tones.',
+        neon: 'Use vivid neon colors.',
+        earth: 'Use earthy, natural tones.',
+        jewel: 'Use rich jewel tones.',
+        muted: 'Use muted, desaturated tones.',
+        jade: 'Use jade/teal greens.',
+        forest: 'Use forest/woodland greens.',
+        ocean: 'Use ocean/aquatic blues.',
+        sunset: 'Use sunset colors (oranges, pinks, golds).',
+        aurora: 'Use aurora/northern lights purples and greens.',
+        warm: 'Use warm tones (reds, oranges, yellows).',
+        cool: 'Use cool tones (blues, teals, purples).',
+        berry: 'Use berry/magenta shades.',
+        monochrome: 'Use only grayscale.',
+        protanopia: 'Use colorblind-safe colors (protanopia type).',
+        deuteranopia: 'Use colorblind-safe colors (deuteranopia type).',
+        tritanopia: 'Use colorblind-safe colors (tritanopia type).',
+    };
+
     function buildPromptInstruction() {
         if (!settings.enabled) return '';
         const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
-        const themeHint = mode === 'dark'
-            ? 'IMPORTANT: Use LIGHT/BRIGHT colors only (high luminance) - pastels, light pinks, light blues, light greens, etc. NEVER use dark colors like brown, maroon, navy, dark green, or any color that would be hard to read on a dark background.'
-            : 'IMPORTANT: Use DARK/DEEP colors only (low luminance) - burgundy, navy, forest green, dark purple, etc. NEVER use light colors like pastel pink, light yellow, cream, or any color that would be hard to read on a light background.';
         const colorList = Object.entries(characterColors).filter(([, v]) => v.locked && v.color).map(([, v]) => `${v.name}=${v.color}${v.style ? ` (${v.style})` : ''}`).join(', ');
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
-        let thoughts = '';
-        if (settings.thoughtSymbols) {
-            thoughts = ` Inner thoughts wrapped in ${settings.thoughtSymbols} must be fully enclosed in <font color=...> tags using the current speaker's color.`;
-        }
-        const narratorRule = settings.disableNarration ? '' : (settings.narratorColor ? `Narrator: ${settings.narratorColor}.` : '');
-        const narratorInBlock = settings.disableNarration ? '' : ' Include Narrator=#RRGGBB if narration is used.';
-        const cssEffectsRule = settings.cssEffects ? ` For intense emotion/magic/distortion, use CSS transforms: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase. Wrap in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.` : '';
-        const usedColors = new Set(Object.values(characterColors).map(c => c.color));
-        const paletteColors = getPaletteHexColors().filter(c => !usedColors.has(c));
-        const paletteHint = paletteColors.length ? ` PREFERRED colors for new characters: ${paletteColors.join(', ')}.` : '';
-        return `[Font Color Rule: Wrap dialogue in <font color=#RRGGBB> tags. ${themeHint} ${colorList ? `LOCKED: ${colorList}.` : ''} ${aliases ? `ALIASES: ${aliases}.` : ''} ${narratorRule} ${thoughts} ${settings.highlightMode ? 'Also add background highlight.' : ''}${cssEffectsRule}${paletteHint} Assign unique colors to new characters. At the very END of your response, on its own line, add: [COLORS:Name=#RRGGBB,Name2=#RRGGBB] listing ALL characters who spoke. If a character uses a different name (username, nickname, alias), include it in parentheses: Name(Username)=#RRGGBB.${narratorInBlock} This will be auto-removed.]`;
+        const parts = [
+            `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags.`,
+            mode === 'dark' ? 'Use readable colors for a dark background.' : 'Use readable colors for a light background.',
+        ];
+        const paletteDesc = PALETTE_DESCRIPTIONS[settings.colorTheme];
+        if (paletteDesc) parts.push(paletteDesc);
+        if (colorList) parts.push(`Keep: ${colorList}.`);
+        if (aliases) parts.push(`Aliases: ${aliases}.`);
+        if (!settings.disableNarration && settings.narratorColor) parts.push(`Narrator: ${settings.narratorColor}.`);
+        if (settings.thoughtSymbols) parts.push(`Inner thoughts in ${settings.thoughtSymbols} must use <font color=...> with the speaker's color.`);
+        if (settings.highlightMode) parts.push('Add background highlight.');
+        if (settings.cssEffects) parts.push(`For intense emotion/magic/distortion, use CSS transforms: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase. Wrap in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.`);
+        parts.push('Give new characters unique colors.');
+        parts.push('End your response with: [COLORS:Name=#RRGGBB,Name2=#RRGGBB] for all speakers.');
+        if (!settings.disableNarration) parts.push('Include Narrator=#RRGGBB if narration is used.');
+        parts.push('Include nicknames as Name(Nick)=#RRGGBB. This line is auto-removed.]');
+        return parts.join(' ');
     }
 
     function buildColoredPromptPreview() {
