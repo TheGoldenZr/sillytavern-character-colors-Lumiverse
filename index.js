@@ -14,6 +14,10 @@
     }
     function clearDomCache() { domCache.clear(); }
 
+    function escapeHtml(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // Optimized color distance calculation
     function colorDistance(color1, color2) {
         const [h1, , l1] = hexToHsl(color1);
@@ -72,6 +76,7 @@
     }
 
     function hexToHsl(hex) {
+        if (!hex || typeof hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(hex)) return [0, 0, 50];
         let r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
         const max = Math.max(r, g, b), min = Math.min(r, g, b);
         let h, s, l = (max + min) / 2;
@@ -217,7 +222,7 @@
         const name = nameInput?.value?.trim();
         if (!name) { toastr?.warning?.('Enter a preset name'); return; }
         const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
-        presets[name] = Object.entries(characterColors).map(([, v]) => ({ name: v.name, color: v.color, style: v.style }));
+        presets[name] = Object.entries(characterColors).map(([, v]) => ({ name: v.name, color: v.color, style: v.style, aliases: v.aliases || [], group: v.group || '', locked: v.locked || false }));
         localStorage.setItem('dc_presets', JSON.stringify(presets));
         nameInput.value = '';
         refreshPresetDropdown();
@@ -455,7 +460,7 @@
             const y = e.clientY || e.touches?.[0]?.clientY || 100;
             menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;background:#1a1a2e;border:1px solid #4a4a6a;border-radius:6px;padding:8px;z-index:10001;min-width:180px;color:#e0e0e0;box-shadow:0 4px 12px rgba(0,0,0,0.5);`;
             menu.innerHTML = `
-                <div style="font-size:0.8em;opacity:0.7;margin-bottom:6px;">"${text}"</div>
+                <div style="font-size:0.8em;opacity:0.7;margin-bottom:6px;">"${escapeHtml(text)}"</div>
                 <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
                     <span style="width:12px;height:12px;border-radius:50%;background:${color};"></span>
                     <input type="color" id="dc-ctx-color" value="${color}" style="width:24px;height:20px;border:none;">
@@ -551,7 +556,7 @@
 
     function exportColors() {
         const blob = new Blob([JSON.stringify({ colors: characterColors, settings }, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `dialogue-colors-${Date.now()}.json`; a.click();
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `dialogue-colors-${Date.now()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     }
 
     function importColors(file) {
@@ -654,7 +659,7 @@
         if (!settings.enabled) return '<span style="opacity:0.5">(disabled)</span>';
         const entries = Object.entries(characterColors);
         if (!entries.length) return '<span style="opacity:0.5">(no characters)</span>';
-        return entries.map(([, v]) => `<span style="color:${v.color}">${v.name}</span>`).join(', ');
+        return entries.map(([, v]) => `<span style="color:${v.color}">${escapeHtml(v.name)}</span>`).join(', ');
     }
 
     function injectPrompt() {
@@ -746,7 +751,7 @@
         const entries = Object.entries(characterColors);
         if (!entries.length || !settings.showLegend) { legend.style.display = 'none'; return; }
         legend.innerHTML = '<div style="font-weight:bold;margin-bottom:4px;cursor:grab;">⋮⋮ Characters</div>' +
-            entries.map(([, v]) => `<div style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:${v.color};"></span><span style="color:${v.color}">${v.name}</span><span style="opacity:0.5;font-size:0.8em;">${v.dialogueCount || 0}</span></div>`).join('');
+            entries.map(([, v]) => `<div style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:${v.color};"></span><span style="color:${v.color}">${escapeHtml(v.name)}</span><span style="opacity:0.5;font-size:0.8em;">${v.dialogueCount || 0}</span></div>`).join('');
         legend.style.display = settings.showLegend ? 'block' : 'none';
     }
 
@@ -760,7 +765,7 @@
         const stats = getDialogueStats();
         if (!stats.length) { toastr?.info?.('No dialogue data'); return; }
         const maxCount = Math.max(...stats.map(s => s.count), 1);
-        let html = stats.map(s => `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="width:60px;color:${s.color}">${s.name}</span><div style="flex:1;height:12px;background:var(--SmartThemeBlurTintColor);border-radius:3px;overflow:hidden;"><div style="width:${s.count / maxCount * 100}%;height:100%;background:${s.color};"></div></div><span style="width:40px;text-align:right;font-size:0.8em;">${s.count} (${s.pct}%)</span></div>`).join('');
+        let html = stats.map(s => `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="width:60px;color:${s.color}">${escapeHtml(s.name)}</span><div style="flex:1;height:12px;background:var(--SmartThemeBlurTintColor);border-radius:3px;overflow:hidden;"><div style="width:${s.count / maxCount * 100}%;height:100%;background:${s.color};"></div></div><span style="width:40px;text-align:right;font-size:0.8em;">${s.count} (${s.pct}%)</span></div>`).join('');
         const popup = document.createElement('div');
         popup.id = 'dc-stats-popup';
         popup.innerHTML = `<div style="font-weight:bold;margin-bottom:8px;">Dialogue Statistics</div>${html}<button class="dc-close-popup menu_button" style="margin-top:10px;width:100%;">Close</button>`;
@@ -859,19 +864,16 @@
     function parseColorBlock(element) {
         const mesText = element.querySelector?.('.mes_text') || element;
         if (!mesText) return false;
-        const text = mesText.textContent;
         const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
         let match, foundNew = false;
-        const blocksToRemove = [];
-        while ((match = colorBlockRegex.exec(text)) !== null) {
-            blocksToRemove.push(match[0]);
+        // Parse from textContent for data extraction
+        while ((match = colorBlockRegex.exec(mesText.textContent)) !== null) {
             if (processColorPairs(match[1])) foundNew = true;
         }
-        if (blocksToRemove.length) {
-            let newHtml = mesText.innerHTML;
-            blocksToRemove.forEach(block => { newHtml = newHtml.replace(block, ''); });
-            mesText.innerHTML = newHtml;
-        }
+        // Remove blocks from innerHTML using the same regex
+        const before = mesText.innerHTML;
+        const cleaned = before.replace(/\[COLORS?:.*?\]/gis, '');
+        if (cleaned !== before) mesText.innerHTML = cleaned;
         return foundNew;
     }
 
@@ -945,11 +947,11 @@
                 const g = v.group || '(ungrouped)';
                 if (g !== lastGroup) {
                     lastGroup = g;
-                    groupHeader = `<div style="font-weight:bold;font-size:0.8em;opacity:0.7;margin-top:6px;padding:2px 4px;border-bottom:1px solid var(--SmartThemeBorderColor);">${g}</div>`;
+                    groupHeader = `<div style="font-weight:bold;font-size:0.8em;opacity:0.7;margin-top:6px;padding:2px 4px;border-bottom:1px solid var(--SmartThemeBorderColor);">${escapeHtml(g)}</div>`;
                 }
             }
             const aliasChips = (v.aliases || []).map(a =>
-                `<span class="dc-alias-chip" style="display:inline-flex;align-items:center;gap:2px;background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:10px;padding:0 6px;font-size:0.7em;cursor:default;margin:1px;">${a}<span class="dc-alias-remove" data-key="${k}" data-alias="${a}" style="cursor:pointer;opacity:0.7;margin-left:2px;" title="Remove alias">&times;</span></span>`
+                `<span class="dc-alias-chip" style="display:inline-flex;align-items:center;gap:2px;background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:10px;padding:0 6px;font-size:0.7em;cursor:default;margin:1px;">${escapeHtml(a)}<span class="dc-alias-remove" data-key="${k}" data-alias="${escapeHtml(a)}" style="cursor:pointer;opacity:0.7;margin-left:2px;" title="Remove alias">&times;</span></span>`
             ).join('');
             return groupHeader + `
             <div class="dc-char ${swapMode === k ? 'dc-swap-selected' : ''} ${selectedKeys.has(k) ? 'dc-batch-selected' : ''}" data-key="${k}" style="display:flex;flex-direction:column;gap:2px;margin:3px 0;padding:2px;border-radius:4px;${swapMode === k ? 'background:var(--SmartThemeQuoteColor);' : ''}${selectedKeys.has(k) ? 'outline:2px solid var(--SmartThemeQuoteColor);' : ''}">
@@ -957,7 +959,7 @@
                     <input type="checkbox" class="dc-batch-check" data-key="${k}" ${selectedKeys.has(k) ? 'checked' : ''} style="width:10px;height:10px;margin:0;">
                     <span style="width:8px;height:8px;border-radius:50%;background:${v.color};flex-shrink:0;"></span>
                     <input type="color" value="${v.color}" data-key="${k}" class="dc-color-input" style="width:18px;height:18px;padding:0;border:none;cursor:pointer;">
-                    <span style="flex:1;color:${v.color};font-size:0.85em;" title="Dialogues: ${v.dialogueCount || 0}${v.aliases?.length ? '\nAliases: ' + v.aliases.join(', ') : ''}${v.group ? '\nGroup: ' + v.group : ''}">${v.name}${v.style ? ` [${v.style[0].toUpperCase()}]` : ''}${getBadge(v.dialogueCount || 0)}</span>
+                    <span style="flex:1;color:${v.color};font-size:0.85em;" title="Dialogues: ${v.dialogueCount || 0}${v.aliases?.length ? '\nAliases: ' + escapeHtml(v.aliases.join(', ')) : ''}${v.group ? '\nGroup: ' + escapeHtml(v.group) : ''}">${escapeHtml(v.name)}${v.style ? ` [${v.style[0].toUpperCase()}]` : ''}${getBadge(v.dialogueCount || 0)}</span>
                     <span style="font-size:0.7em;opacity:0.6;">${v.dialogueCount || 0}</span>
                     <button class="dc-lock menu_button" data-key="${k}" style="padding:1px 4px;font-size:0.7em;" title="Lock color">${v.locked ? '🔒' : '🔓'}</button>
                     <button class="dc-swap menu_button" data-key="${k}" style="padding:1px 4px;font-size:0.7em;" title="Swap colors">⇄</button>
@@ -1309,6 +1311,7 @@
             if (document.getElementById('extensions_settings')) {
                 clearInterval(waitUI);
                 createUI();
+                clearDomCache();
                 injectPrompt();
             } else if (waitAttempts > 60) {
                 clearInterval(waitUI);
@@ -1321,6 +1324,7 @@
     eventSource.on(event_types.MESSAGE_RECEIVED, onNewMessage);
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, onNewMessage);
     eventSource.on(event_types.CHAT_CHANGED, () => {
+        clearDomCache();
         const currentCharKey = getCharKey();
         if (currentCharKey !== lastCharKey) {
             loadData();
