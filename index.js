@@ -690,6 +690,8 @@
             `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags.`,
             mode === 'dark' ? 'Use readable colors for a dark background.' : 'Use readable colors for a light background.',
         ];
+        if (settings.brightness > 0) parts.push(`Prefer colors ~${settings.brightness}% brighter than normal.`);
+        if (settings.brightness < 0) parts.push(`Prefer colors ~${Math.abs(settings.brightness)}% dimmer than normal.`);
         const paletteDesc = PALETTE_DESCRIPTIONS[settings.colorTheme];
         if (paletteDesc) parts.push(paletteDesc);
         if (colorList) parts.push(`Keep: ${colorList}.`);
