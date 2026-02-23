@@ -64,7 +64,7 @@
     let injectDebouncedTimer = null;
 
     function hslToHex(h, s, l) {
-        l = Math.max(0, Math.min(100, l + settings.brightness));
+        l = Math.max(0, Math.min(100, l));
         s /= 100; l /= 100;
         const a = s * Math.min(l, 1 - l);
         const f = n => {
@@ -150,7 +150,7 @@
     function applyBrightnessToHex(hex) {
         if (!settings.brightness) return hex;
         const [h, s, l] = hexToHsl(hex);
-        return hslToHex(h, s, l);
+        return hslToHex(h, s, l + settings.brightness);
     }
 
     // Phase 3B: Optimized conflict check with pre-computed HSL and early-out
