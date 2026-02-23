@@ -2,7 +2,7 @@
     'use strict';
 
     const { extension_settings, saveSettingsDebounced, getContext } = await import('../../../extensions.js');
-    const { eventSource, event_types, setExtensionPrompt, saveCharacterDebounced, getCharacters } = await import('../../../../script.js');
+    const { eventSource, event_types, setExtensionPrompt, saveCharacterDebounced, getCharacters, extension_prompt_types, extension_prompt_roles } = await import('../../../../script.js');
 
     // Cache frequently used DOM queries
     const domCache = new Map();
@@ -33,7 +33,7 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, promptDepth: 4 };
     let lastCharKey = null;
     // Phase 6A: Batch selection state
     let selectedKeys = new Set();
@@ -692,7 +692,7 @@
     function injectPrompt() {
         if (injectDebouncedTimer) clearTimeout(injectDebouncedTimer);
         injectDebouncedTimer = setTimeout(() => {
-            setExtensionPrompt(MODULE_NAME, settings.enabled ? buildPromptInstruction() : '', 1, 0);
+            setExtensionPrompt(MODULE_NAME, settings.enabled ? buildPromptInstruction() : '', extension_prompt_types.IN_CHAT, settings.promptDepth, false, extension_prompt_roles.SYSTEM);
             const p = document.getElementById('dc-prompt-preview');
             if (p) p.innerHTML = buildColoredPromptPreview();
         }, 50);
@@ -1143,6 +1143,7 @@
         if ($('dc-bright-val')) $('dc-bright-val').textContent = settings.brightness || 0;
         if ($('dc-narrator')) $('dc-narrator').value = settings.narratorColor || '#888888';
         if ($('dc-thought-symbols')) $('dc-thought-symbols').value = settings.thoughtSymbols || '';
+        if ($('dc-prompt-depth')) $('dc-prompt-depth').value = settings.promptDepth ?? 4;
         refreshPresetDropdown();
         refreshPaletteDropdown();
     }
@@ -1177,6 +1178,7 @@
                         <label class="checkbox_label"><input type="checkbox" id="dc-share-global"><span>Share colors across all chats</span></label>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;"><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;"><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;"></div>
                     </div>
                 </details>
                 <details class="dc-section">
@@ -1246,6 +1248,7 @@
         $('dc-thought-symbols').oninput = e => { settings.thoughtSymbols = e.target.value; saveData(); injectPrompt(); };
         $('dc-thought-add').onclick = () => { const s = prompt('Add thought symbol (e.g., *, 「, 『):'); if (s?.trim()) { settings.thoughtSymbols = (settings.thoughtSymbols || '') + s.trim(); $('dc-thought-symbols').value = settings.thoughtSymbols; saveData(); injectPrompt(); document.querySelectorAll('.mes').forEach(m => colorThoughts(m)); } };
         $('dc-thought-clear').onclick = () => { settings.thoughtSymbols = ''; $('dc-thought-symbols').value = ''; saveData(); injectPrompt(); };
+        $('dc-prompt-depth').oninput = e => { settings.promptDepth = parseInt(e.target.value) || 0; saveData(); injectPrompt(); };
         $('dc-scan').onclick = scanAllMessages;
         $('dc-clear').onclick = () => { characterColors = {}; selectedKeys.clear(); saveHistory(); saveData(); injectPrompt(); updateCharList(); };
         $('dc-stats').onclick = showStatsPopup;
