@@ -965,7 +965,7 @@
             <div class="dc-char ${swapMode === k ? 'dc-swap-selected' : ''} ${selectedKeys.has(k) ? 'dc-batch-selected' : ''}" data-key="${k}" style="display:flex;flex-direction:column;gap:2px;margin:3px 0;padding:2px;border-radius:4px;${swapMode === k ? 'background:var(--SmartThemeQuoteColor);' : ''}${selectedKeys.has(k) ? 'outline:2px solid var(--SmartThemeQuoteColor);' : ''}">
                 <div style="display:flex;align-items:center;gap:4px;">
                     <input type="checkbox" class="dc-batch-check" data-key="${k}" ${selectedKeys.has(k) ? 'checked' : ''} style="width:10px;height:10px;margin:0;">
-                    <span style="width:8px;height:8px;border-radius:50%;background:${v.color};flex-shrink:0;"></span>
+                    <span class="dc-color-dot" style="width:8px;height:8px;border-radius:50%;background:${v.color};flex-shrink:0;cursor:pointer;"></span>
                     <input type="color" value="${v.color}" data-key="${k}" class="dc-color-input" style="width:18px;height:18px;padding:0;border:none;cursor:pointer;">
                     <span style="flex:1;color:${v.color};font-size:0.85em;" title="Dialogues: ${v.dialogueCount || 0}${v.aliases?.length ? '\nAliases: ' + escapeHtml(v.aliases.join(', ')) : ''}${v.group ? '\nGroup: ' + escapeHtml(v.group) : ''}">${escapeHtml(v.name)}${v.style ? ` [${v.style[0].toUpperCase()}]` : ''}${getBadge(v.dialogueCount || 0)}</span>
                     <span style="font-size:0.7em;opacity:0.6;">${v.dialogueCount || 0}</span>
@@ -984,6 +984,9 @@
         list.querySelectorAll('.dc-color-input').forEach(i => {
             i.oninput = () => { const c = characterColors[i.dataset.key]; c.color = i.value; c.aliases?.forEach(a => { const ak = a.toLowerCase(); if (characterColors[ak]) characterColors[ak].color = i.value; }); saveHistory(); saveData(); injectPrompt(); updateCharList(); };
             i.ondblclick = (e) => { e.preventDefault(); showHarmonyPopup(i.dataset.key, i); };
+        });
+        list.querySelectorAll('.dc-color-dot').forEach(dot => {
+            dot.onclick = () => { const input = dot.nextElementSibling; if (input?.classList.contains('dc-color-input')) input.click(); };
         });
         list.querySelectorAll('.dc-del').forEach(b => { b.onclick = () => { delete characterColors[b.dataset.key]; selectedKeys.delete(b.dataset.key); saveHistory(); saveData(); injectPrompt(); updateCharList(); }; });
         list.querySelectorAll('.dc-lock').forEach(b => { b.onclick = () => { characterColors[b.dataset.key].locked = !characterColors[b.dataset.key].locked; saveData(); updateCharList(); }; });
