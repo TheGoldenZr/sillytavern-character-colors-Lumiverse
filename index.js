@@ -85,7 +85,7 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: false };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true };
     let lastCharKey = null;
     let lastProcessedMessageSignature = '';
     // Phase 6A: Batch selection state
@@ -1868,6 +1868,8 @@
                 <details class="dc-section" open>
                     <summary style="cursor:pointer;font-weight:bold;margin-bottom:4px;">Display</summary>
                     <div style="display:flex;flex-direction:column;gap:4px;padding-left:4px;">
+                        <label class="checkbox_label"><input type="checkbox" id="dc-help-toggle"><span>Show control help panel</span></label>
+                        <div id="dc-help-panel" class="dc-help-panel" style="display:none;"></div>
                         <label class="checkbox_label"><input type="checkbox" id="dc-enabled"><span>Enable</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-highlight"><span>Highlight mode</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-legend"><span>Show floating legend</span></label>
@@ -1890,8 +1892,6 @@
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;"><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;"><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;"></div>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-help-toggle"><span>Show control help panel</span></label>
-                        <div id="dc-help-panel" class="dc-help-panel" style="display:none;"></div>
                     </div>
                 </details>
                 <details class="dc-section">
