@@ -1082,8 +1082,13 @@
         ];
         if (settings.brightness > 0) parts.push(`Prefer colors ~${settings.brightness}% brighter than normal.`);
         if (settings.brightness < 0) parts.push(`Prefer colors ~${Math.abs(settings.brightness)}% dimmer than normal.`);
-        const paletteDesc = PALETTE_DESCRIPTIONS[settings.colorTheme];
-        if (paletteDesc) parts.push(paletteDesc);
+        const customPalettePrompt = buildCustomPalettePrompt();
+        if (customPalettePrompt) {
+            parts.push(customPalettePrompt);
+        } else {
+            const paletteDesc = PALETTE_DESCRIPTIONS[settings.colorTheme];
+            if (paletteDesc) parts.push(paletteDesc);
+        }
         if (colorList) parts.push(`Keep: ${colorList}.`);
         if (aliases) parts.push(`Aliases: ${aliases}.`);
         if (!settings.disableNarration && settings.narratorColor) parts.push(`Narrator: ${settings.narratorColor}.`);
@@ -1095,6 +1100,21 @@
         if (!settings.disableNarration) parts.push('Include Narrator=#RRGGBB if narration is used.');
         parts.push('Include nicknames as Name(Nick)=#RRGGBB.]');
         return parts.join(' ');
+    }
+
+    function buildCustomPalettePrompt() {
+        if (!settings.colorTheme?.startsWith('custom:')) return '';
+        const paletteName = settings.colorTheme.slice(7);
+        if (!paletteName) return '';
+        const customs = getCustomPalettes();
+        const palette = customs[paletteName];
+        if (!Array.isArray(palette) || !palette.length) return '';
+        const meta = getCustomPaletteMeta();
+        const notes = meta?.[paletteName]?.notes?.trim() || '';
+        const colors = palette.map(c => normalizeHexColor(c, null)).filter(Boolean).join(', ');
+        if (!colors) return '';
+        const notesPart = notes ? ` Theme notes: ${notes}.` : '';
+        return `Use custom palette "${paletteName}": ${colors}.${notesPart} Prefer these hues when assigning new character colors.`;
     }
 
     function buildColoredPromptPreview() {
