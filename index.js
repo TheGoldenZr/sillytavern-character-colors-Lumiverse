@@ -121,6 +121,7 @@
         'dc-scan': 'Scan chat messages and infer character colors from dialogue.',
         'dc-clear': 'Remove all tracked characters and color assignments.',
         'dc-stats': 'Open dialogue statistics for currently tracked characters.',
+        'dc-recolor': 'Rewrite font colors in all messages to match current color assignments.',
         'dc-undo': 'Undo the last color-table change.',
         'dc-redo': 'Redo the most recently undone change.',
         'dc-fix-conflicts': 'Auto-resolve colors that are too similar.',
@@ -201,6 +202,7 @@
             title: 'Actions',
             items: [
                 { label: 'Scan / Clear / Stats', key: 'dc-scan' },
+                { label: 'Recolor messages', key: 'dc-recolor' },
                 { label: 'Undo / Redo / Fix', key: 'dc-undo' },
                 { label: 'Regen / Theme flip', key: 'dc-regen' },
                 { label: 'Presets', key: 'dc-save-preset' },
@@ -1541,6 +1543,138 @@
         toastr?.info?.(`Found ${Object.keys(characterColors).length} characters`);
     }
 
+    async function recolorAllMessages() {
+        const ctx = getContext();
+        const chat = ctx?.chat || [];
+        if (!chat.length) { toastr?.info?.('No messages to recolor.'); return; }
+
+        const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
+        const fontTagRegex = /<font\s+color\s*=\s*["']?(#[0-9a-fA-F]{6})["']?\s*>/gi;
+
+        // Step 1: Build global reverse map (oldColor → characterName) from all [COLORS:] blocks.
+        // Later messages overwrite earlier so the most-recent assignment wins.
+        const globalColorToName = {};
+        for (const msg of chat) {
+            const text = msg?.mes || '';
+            let m;
+            while ((m = colorBlockRegex.exec(text)) !== null) {
+                for (const pair of m[1].split(',')) {
+                    const eqIdx = pair.indexOf('=');
+                    if (eqIdx === -1) continue;
+                    const { name } = parseNameWithNicknames(pair.substring(0, eqIdx).trim());
+                    const rawColor = pair.substring(eqIdx + 1).trim();
+                    if (name && /^#[0-9a-fA-F]{6}$/.test(rawColor)) {
+                        globalColorToName[rawColor.toLowerCase()] = name;
+                    }
+                }
+            }
+        }
+
+        // Step 2: Build current name → newColor lookup from characterColors (including aliases).
+        const nameToNewColor = {};
+        for (const entry of Object.values(characterColors)) {
+            const adjusted = applyThemeReadabilityAndBrightness(entry.color);
+            nameToNewColor[entry.name.toLowerCase()] = adjusted;
+            for (const alias of (entry.aliases || [])) {
+                nameToNewColor[alias.toLowerCase()] = adjusted;
+            }
+        }
+        // Include narrator color if set
+        if (settings.narratorColor) {
+            nameToNewColor['narrator'] = applyThemeReadabilityAndBrightness(settings.narratorColor);
+        }
+
+        // Step 3: Process each non-user message
+        let recoloredCount = 0;
+        const messageEls = document.querySelectorAll('.mes');
+        for (let i = 0; i < chat.length; i++) {
+            const msg = chat[i];
+            if (!msg || msg.is_user) continue;
+            const rawText = msg.mes || '';
+            if (!rawText) continue;
+
+            // Build per-message local oldColor→name map from this message's [COLORS:] block
+            const localColorToName = {};
+            let blockMatch;
+            const localBlockRegex = /\[COLORS?:(.*?)\]/gis;
+            while ((blockMatch = localBlockRegex.exec(rawText)) !== null) {
+                for (const pair of blockMatch[1].split(',')) {
+                    const eqIdx = pair.indexOf('=');
+                    if (eqIdx === -1) continue;
+                    const { name } = parseNameWithNicknames(pair.substring(0, eqIdx).trim());
+                    const rawColor = pair.substring(eqIdx + 1).trim();
+                    if (name && /^#[0-9a-fA-F]{6}$/.test(rawColor)) {
+                        localColorToName[rawColor.toLowerCase()] = name;
+                    }
+                }
+            }
+
+            // Merge: local overrides global
+            const mergedColorToName = { ...globalColorToName, ...localColorToName };
+
+            // Build oldColor → newColor replacement map
+            const replacements = {};
+            for (const [oldColor, charName] of Object.entries(mergedColorToName)) {
+                const newColor = nameToNewColor[charName.toLowerCase()];
+                if (newColor && normalizeHexColor(oldColor) !== normalizeHexColor(newColor)) {
+                    replacements[oldColor] = newColor;
+                }
+            }
+
+            if (!Object.keys(replacements).length) continue;
+
+            // Replace <font color=X> tags in raw msg.mes text
+            let updated = rawText.replace(fontTagRegex, (match, oldHex) => {
+                const key = oldHex.toLowerCase();
+                if (replacements[key]) {
+                    return match.replace(oldHex, replacements[key]);
+                }
+                return match;
+            });
+
+            // Update [COLORS:] block colors in raw text
+            updated = updated.replace(colorBlockRegex, (fullMatch, pairsStr) => {
+                const newPairs = pairsStr.split(',').map(pair => {
+                    const eqIdx = pair.indexOf('=');
+                    if (eqIdx === -1) return pair;
+                    const namePart = pair.substring(0, eqIdx);
+                    const rawColor = pair.substring(eqIdx + 1).trim();
+                    const key = rawColor.toLowerCase();
+                    if (replacements[key]) return `${namePart}=${replacements[key]}`;
+                    return pair;
+                }).join(',');
+                return fullMatch.replace(pairsStr, newPairs);
+            });
+
+            if (updated !== rawText) {
+                msg.mes = updated;
+                recoloredCount++;
+            }
+
+            // Update DOM font[color] attributes for this message
+            const mesEl = messageEls[i];
+            if (mesEl) {
+                const fontEls = mesEl.querySelectorAll('font[color]');
+                for (const fontEl of fontEls) {
+                    const oldAttr = (fontEl.getAttribute('color') || '').toLowerCase();
+                    if (replacements[oldAttr]) {
+                        fontEl.setAttribute('color', replacements[oldAttr]);
+                    }
+                }
+            }
+        }
+
+        // Step 4: Persist
+        if (recoloredCount > 0) {
+            await ctx.saveChat();
+        }
+
+        // Step 5: Strip remaining visible color blocks
+        stripColorBlocksFromDisplay();
+
+        toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}.`);
+    }
+
     function onNewMessage() {
         if (!settings.enabled || !settings.autoScanNewMessages) return;
         setTimeout(() => {
@@ -1898,6 +2032,7 @@
                     <summary style="cursor:pointer;font-weight:bold;margin-bottom:4px;">Actions</summary>
                     <div style="display:flex;flex-direction:column;gap:4px;padding-left:4px;">
                         <div style="display:flex;gap:4px;"><button id="dc-scan" class="menu_button" style="flex:1;">Scan</button><button id="dc-clear" class="menu_button" style="flex:1;">Clear</button><button id="dc-stats" class="menu_button" style="flex:1;" title="Dialogue statistics">Stats</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-recolor" class="menu_button" style="flex:1;" title="Recolor all messages with current color assignments">Recolor</button></div>
                         <div style="display:flex;gap:4px;"><button id="dc-undo" class="menu_button" style="flex:1;">&#8630;</button><button id="dc-redo" class="menu_button" style="flex:1;">&#8631;</button><button id="dc-fix-conflicts" class="menu_button" style="flex:1;" title="Auto-fix color conflicts">Fix</button></div>
                         <div style="display:flex;gap:4px;"><button id="dc-regen" class="menu_button" style="flex:1;" title="Regenerate all colors">Regen</button><button id="dc-flip-theme" class="menu_button" style="flex:1;" title="Flip colors for Dark/Light theme switch">&#9728;/&#127769;</button></div>
                         <hr style="margin:4px 0;opacity:0.15;">
@@ -1967,6 +2102,11 @@
         $('dc-scan').onclick = scanAllMessages;
         $('dc-clear').onclick = () => { characterColors = {}; selectedKeys.clear(); saveHistory(); saveData(); injectPrompt(); updateCharList(); };
         $('dc-stats').onclick = showStatsPopup;
+        $('dc-recolor').onclick = () => {
+            if (confirm('Recolor all messages with current color assignments?')) {
+                recolorAllMessages();
+            }
+        };
         $('dc-fix-conflicts').onclick = autoResolveConflicts;
         $('dc-regen').onclick = regenerateAllColors;
         $('dc-flip-theme').onclick = flipColorsForTheme;
