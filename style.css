@@ -104,6 +104,46 @@
     color: #ff6b6b;
 }
 
+#dc-ext .dc-help-panel {
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    padding: 6px;
+    margin-top: 2px;
+    font-size: 0.78em;
+    line-height: 1.35;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+#dc-ext .dc-help-group + .dc-help-group {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--SmartThemeBorderColor);
+}
+
+#dc-ext .dc-help-group-title {
+    font-weight: 600;
+    opacity: 0.9;
+    margin-bottom: 3px;
+}
+
+#dc-ext .dc-help-item {
+    display: grid;
+    grid-template-columns: minmax(88px, 110px) 1fr;
+    gap: 6px;
+    margin: 2px 0;
+}
+
+#dc-ext .dc-help-name {
+    font-weight: 600;
+    opacity: 0.95;
+}
+
+#dc-ext .dc-help-desc {
+    opacity: 0.9;
+}
+
 #dc-ext details summary {
     list-style: none;
     user-select: none;
@@ -196,5 +236,16 @@
     #dc-batch-bar .menu_button {
         flex: 1;
         min-width: 60px;
+    }
+
+    #dc-ext .dc-help-panel {
+        max-height: 240px;
+        font-size: 0.8em;
+    }
+
+    #dc-ext .dc-help-item {
+        grid-template-columns: 1fr;
+        gap: 1px;
+        margin: 4px 0;
     }
 }

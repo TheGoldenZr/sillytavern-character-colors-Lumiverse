@@ -85,13 +85,153 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4 };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: false };
     let lastCharKey = null;
     let lastProcessedMessageSignature = '';
     // Phase 6A: Batch selection state
     let selectedKeys = new Set();
     // Phase 3A: Legend event listener cleanup
     let legendListeners = null;
+
+    const CONTROL_HELP_TEXT = Object.freeze({
+        'dc-enabled': 'Enable or disable Dialogue Colors prompt injection and color formatting.',
+        'dc-highlight': 'Add background highlighting behind colored dialogue text.',
+        'dc-legend': 'Show a draggable floating legend of active character colors.',
+        'dc-css-effects': 'Allow transform-based CSS effects for intense dialogue moments.',
+        'dc-theme': 'Choose Auto, Dark, or Light targeting for generated color readability.',
+        'dc-palette': 'Pick the color palette used for new or regenerated character colors.',
+        'dc-gen-palette': 'Generate a custom palette from prompt words.',
+        'dc-save-palette': 'Save current colors as a reusable custom palette.',
+        'dc-del-palette': 'Delete the currently selected custom palette.',
+        'dc-brightness': 'Shift generated color lightness up or down.',
+        'dc-autoscan': 'Automatically scan existing chat messages after chat load.',
+        'dc-autoscan-new': 'Automatically scan newly arriving messages for speakers/colors.',
+        'dc-auto-lock': 'Automatically lock newly detected characters to preserve assignments.',
+        'dc-right-click': 'Enable right-click or long-press assign-color menu on messages.',
+        'dc-disable-narration': 'Skip narrator color assignment in generated prompt instructions.',
+        'dc-share-global': 'Use one shared color table for all chats instead of per-chat storage.',
+        'dc-llm-palette': 'Use LLM assistance to refine generated custom palettes.',
+        'dc-narrator': 'Set narrator fallback color used when narration coloring is enabled.',
+        'dc-narrator-clear': 'Clear custom narrator color and return to default.',
+        'dc-thought-symbols': 'Symbols used to detect and color inner-thought dialogue.',
+        'dc-thought-add': 'Append another thought symbol to the list.',
+        'dc-thought-clear': 'Remove all thought symbols.',
+        'dc-prompt-depth': 'How far from the chat end the system color prompt is injected.',
+        'dc-help-toggle': 'Show or hide the inline help panel explaining each control.',
+        'dc-scan': 'Scan chat messages and infer character colors from dialogue.',
+        'dc-clear': 'Remove all tracked characters and color assignments.',
+        'dc-stats': 'Open dialogue statistics for currently tracked characters.',
+        'dc-undo': 'Undo the last color-table change.',
+        'dc-redo': 'Redo the most recently undone change.',
+        'dc-fix-conflicts': 'Auto-resolve colors that are too similar.',
+        'dc-regen': 'Regenerate colors for unlocked characters using current settings.',
+        'dc-flip-theme': 'Invert color lightness to quickly adapt to light/dark theme changes.',
+        'dc-preset-name': 'Preset name used when saving current color assignments.',
+        'dc-save-preset': 'Save current assignments into a named preset.',
+        'dc-preset-select': 'Select a preset to load into or remove from this chat.',
+        'dc-load-preset': 'Load selected preset colors into current character list.',
+        'dc-delete-preset': 'Delete the selected preset from local storage.',
+        'dc-export': 'Export colors and settings to a JSON file.',
+        'dc-import': 'Import colors and settings from a JSON file.',
+        'dc-export-png': 'Export the floating legend as an image.',
+        'dc-card': 'Add current card character to the color list if missing.',
+        'dc-avatar-color': 'Extract a suggested color from the current character avatar.',
+        'dc-save-card': 'Save this chat color data into character card extensions.',
+        'dc-load-card': 'Load saved color data from character card extensions.',
+        'dc-lock-all': 'Lock every tracked character color.',
+        'dc-unlock-all': 'Unlock every tracked character color.',
+        'dc-reset': 'Reassign colors for all unlocked characters.',
+        'dc-del-locked': 'Delete all locked characters.',
+        'dc-del-unlocked': 'Delete all unlocked characters.',
+        'dc-del-least': 'Delete characters below a dialogue-count threshold.',
+        'dc-del-dupes': 'Delete duplicate-color characters, keeping highest dialogue count.',
+        'dc-search': 'Filter characters by name, alias, or group.',
+        'dc-sort': 'Sort character list by name, dialogue count, or group.',
+        'dc-add-name': 'Type a new character name to add manually.',
+        'dc-add-btn': 'Add typed character with a suggested color.',
+        'dc-batch-all': 'Select all characters for batch operations.',
+        'dc-batch-none': 'Clear all current character selections.',
+        'dc-batch-del': 'Delete selected characters.',
+        'dc-batch-lock': 'Lock selected characters.',
+        'dc-batch-unlock': 'Unlock selected characters.',
+        'dc-batch-style': 'Apply a style to selected characters.'
+    });
+
+    const DYNAMIC_CONTROL_HELP_TEXT = Object.freeze({
+        '.dc-batch-check': 'Select this character row for batch actions.',
+        '.dc-color-dot': 'Click to open the color picker for this character.',
+        '.dc-color-input': 'Pick a color directly. Double-click for harmony suggestions.',
+        '.dc-lock': 'Toggle lock for this character color.',
+        '.dc-swap': 'Choose two characters in sequence to swap their colors.',
+        '.dc-style': 'Cycle style: none, bold, italic, then bold italic.',
+        '.dc-alias': 'Add an alternate name that maps to this character.',
+        '.dc-group': 'Assign this character to a group label.',
+        '.dc-del': 'Delete this character from the list.',
+        '.dc-alias-remove': 'Remove this alias from the character.'
+    });
+
+    const CONTROL_HELP_PANEL_GROUPS = Object.freeze([
+        {
+            title: 'Display',
+            items: [
+                { label: 'Enable', key: 'dc-enabled' },
+                { label: 'Highlight mode', key: 'dc-highlight' },
+                { label: 'Floating legend', key: 'dc-legend' },
+                { label: 'CSS effects', key: 'dc-css-effects' },
+                { label: 'Theme', key: 'dc-theme' },
+                { label: 'Palette', key: 'dc-palette' },
+                { label: 'Gen / + / -', key: 'dc-gen-palette' },
+                { label: 'Brightness', key: 'dc-brightness' }
+            ]
+        },
+        {
+            title: 'Behavior',
+            items: [
+                { label: 'Auto-scan on load', key: 'dc-autoscan' },
+                { label: 'Auto-scan new', key: 'dc-autoscan-new' },
+                { label: 'Auto-lock', key: 'dc-auto-lock' },
+                { label: 'Right-click menu', key: 'dc-right-click' },
+                { label: 'Disable narration', key: 'dc-disable-narration' },
+                { label: 'Share global', key: 'dc-share-global' },
+                { label: 'LLM palette', key: 'dc-llm-palette' },
+                { label: 'Narr / Think / Depth', key: 'dc-narrator' }
+            ]
+        },
+        {
+            title: 'Actions',
+            items: [
+                { label: 'Scan / Clear / Stats', key: 'dc-scan' },
+                { label: 'Undo / Redo / Fix', key: 'dc-undo' },
+                { label: 'Regen / Theme flip', key: 'dc-regen' },
+                { label: 'Presets', key: 'dc-save-preset' },
+                { label: 'Import / Export / PNG', key: 'dc-export' },
+                { label: 'Card tools', key: 'dc-card' },
+                { label: 'Lock / Unlock / Reset', key: 'dc-lock-all' },
+                { label: 'Delete tools', key: 'dc-del-locked' }
+            ]
+        },
+        {
+            title: 'Characters',
+            items: [
+                { label: 'Search / Sort', key: 'dc-search' },
+                { label: 'Add (+)', key: 'dc-add-btn' },
+                { label: 'Batch controls', key: 'dc-batch-all' }
+            ]
+        },
+        {
+            title: 'Character Row',
+            items: [
+                { label: 'Checkbox', text: DYNAMIC_CONTROL_HELP_TEXT['.dc-batch-check'] },
+                { label: 'Color dot/picker', text: DYNAMIC_CONTROL_HELP_TEXT['.dc-color-input'] },
+                { label: 'Lock', text: DYNAMIC_CONTROL_HELP_TEXT['.dc-lock'] },
+                { label: 'Swap', text: DYNAMIC_CONTROL_HELP_TEXT['.dc-swap'] },
+                { label: 'Style', text: DYNAMIC_CONTROL_HELP_TEXT['.dc-style'] },
+                { label: 'Alias (+)', text: DYNAMIC_CONTROL_HELP_TEXT['.dc-alias'] },
+                { label: 'Group (G)', text: DYNAMIC_CONTROL_HELP_TEXT['.dc-group'] },
+                { label: 'Delete (x)', text: DYNAMIC_CONTROL_HELP_TEXT['.dc-del'] }
+            ]
+        }
+    ]);
 
     const COLOR_THEMES = {
         pastel: [[340, 70, 75], [200, 70, 75], [120, 50, 70], [45, 80, 70], [280, 60, 75], [170, 60, 70], [20, 80, 75], [240, 60, 75]],
@@ -1484,6 +1624,8 @@
             </div>`;
         }).join('') : `<small style="opacity:0.6;">${searchTerm ? 'No matches' : 'No characters'}</small>`;
 
+        applyControlHelpText(list);
+
         // Color input + double-click for harmony popup
         list.querySelectorAll('.dc-color-input').forEach(i => {
             i.oninput = () => {
@@ -1633,6 +1775,50 @@
         }
     }
 
+    function setControlHelp(element, text) {
+        if (!element || !text) return;
+        element.title = text;
+        element.setAttribute('aria-label', text);
+    }
+
+    function applyControlHelpText(root = document) {
+        for (const [id, text] of Object.entries(CONTROL_HELP_TEXT)) {
+            const element = document.getElementById(id);
+            if (element) setControlHelp(element, text);
+        }
+        const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+        for (const [selector, text] of Object.entries(DYNAMIC_CONTROL_HELP_TEXT)) {
+            scope.querySelectorAll(selector).forEach(element => setControlHelp(element, text));
+        }
+    }
+
+    function getHelpTextByItem(item) {
+        if (item.text) return item.text;
+        if (item.key) return CONTROL_HELP_TEXT[item.key] || '';
+        return '';
+    }
+
+    function renderControlHelpPanel() {
+        const panel = document.getElementById('dc-help-panel');
+        if (!panel) return;
+        if (!settings.showControlHelp) {
+            panel.style.display = 'none';
+            panel.innerHTML = '';
+            return;
+        }
+        const html = CONTROL_HELP_PANEL_GROUPS.map(group => {
+            const rows = group.items.map(item => {
+                const text = getHelpTextByItem(item);
+                if (!text) return '';
+                return `<div class="dc-help-item"><span class="dc-help-name">${escapeHtml(item.label)}</span><span class="dc-help-desc">${escapeHtml(text)}</span></div>`;
+            }).filter(Boolean).join('');
+            if (!rows) return '';
+            return `<div class="dc-help-group"><div class="dc-help-group-title">${escapeHtml(group.title)}</div>${rows}</div>`;
+        }).filter(Boolean).join('');
+        panel.innerHTML = html;
+        panel.style.display = html ? 'block' : 'none';
+    }
+
     function autoAssignFromCard() {
         try {
             const ctx = getContext();
@@ -1665,6 +1851,9 @@
         if ($('dc-narrator')) $('dc-narrator').value = settings.narratorColor || '#888888';
         if ($('dc-thought-symbols')) $('dc-thought-symbols').value = settings.thoughtSymbols || '';
         if ($('dc-prompt-depth')) $('dc-prompt-depth').value = settings.promptDepth ?? 4;
+        if ($('dc-help-toggle')) $('dc-help-toggle').checked = !!settings.showControlHelp;
+        renderControlHelpPanel();
+        applyControlHelpText();
         refreshPresetDropdown();
         refreshPaletteDropdown();
     }
@@ -1701,6 +1890,8 @@
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;"><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;"><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;"></div>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-help-toggle"><span>Show control help panel</span></label>
+                        <div id="dc-help-panel" class="dc-help-panel" style="display:none;"></div>
                     </div>
                 </details>
                 <details class="dc-section">
@@ -1772,6 +1963,7 @@
         $('dc-thought-add').onclick = () => { const s = prompt('Add thought symbol (e.g., *, 「, 『):'); if (s?.trim()) { settings.thoughtSymbols = (settings.thoughtSymbols || '') + s.trim(); $('dc-thought-symbols').value = settings.thoughtSymbols; saveData(); injectPrompt(); } };
         $('dc-thought-clear').onclick = () => { settings.thoughtSymbols = ''; $('dc-thought-symbols').value = ''; saveData(); injectPrompt(); };
         $('dc-prompt-depth').oninput = e => { settings.promptDepth = parseInt(e.target.value) || 0; saveData(); injectPrompt(); };
+        $('dc-help-toggle').onchange = e => { settings.showControlHelp = e.target.checked; saveData(); renderControlHelpPanel(); };
         $('dc-scan').onclick = scanAllMessages;
         $('dc-clear').onclick = () => { characterColors = {}; selectedKeys.clear(); saveHistory(); saveData(); injectPrompt(); updateCharList(); };
         $('dc-stats').onclick = showStatsPopup;
@@ -1925,6 +2117,7 @@
             if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey)) && document.activeElement?.closest('#dc-ext')) { e.preventDefault(); redo(); }
         });
 
+        applyControlHelpText();
         updateCharList();
         injectPrompt();
     }
