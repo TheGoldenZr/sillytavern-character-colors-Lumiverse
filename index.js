@@ -1664,15 +1664,14 @@
             }
         }
 
-        // Step 4: Persist
+        // Step 4: Persist and reload
         if (recoloredCount > 0) {
             await ctx.saveChat();
+            toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Reloading chat...`);
+            await ctx.reloadCurrentChat();
+        } else {
+            toastr?.info?.('No messages needed recoloring.');
         }
-
-        // Step 5: Strip remaining visible color blocks
-        stripColorBlocksFromDisplay();
-
-        toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}.`);
     }
 
     function onNewMessage() {
