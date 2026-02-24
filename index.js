@@ -85,7 +85,7 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true };
     let lastCharKey = null;
     let lastProcessedMessageSignature = '';
     // Phase 6A: Batch selection state
@@ -122,6 +122,7 @@
         'dc-clear': 'Remove all tracked characters and color assignments.',
         'dc-stats': 'Open dialogue statistics for currently tracked characters.',
         'dc-recolor': 'Rewrite font colors in all messages to match current color assignments.',
+        'dc-auto-recolor': 'Automatically recolor and reload chat when character colors change.',
         'dc-undo': 'Undo the last color-table change.',
         'dc-redo': 'Redo the most recently undone change.',
         'dc-fix-conflicts': 'Auto-resolve colors that are too similar.',
@@ -203,6 +204,7 @@
             items: [
                 { label: 'Scan / Clear / Stats', key: 'dc-scan' },
                 { label: 'Recolor messages', key: 'dc-recolor' },
+                { label: 'Auto-recolor', key: 'dc-auto-recolor' },
                 { label: 'Undo / Redo / Fix', key: 'dc-undo' },
                 { label: 'Regen / Theme flip', key: 'dc-regen' },
                 { label: 'Presets', key: 'dc-save-preset' },
@@ -377,6 +379,7 @@
         }
         saveHistory(); saveData(); updateCharList(); injectPrompt();
         toastr?.success?.('Colors regenerated');
+        if (settings.autoRecolor) recolorAllMessages();
     }
 
     // Phase 4B: Improved conflict resolution feedback listing pairs
@@ -409,6 +412,7 @@
         }
         saveHistory(); saveData(); updateCharList(); injectPrompt();
         toastr?.success?.('Colors flipped for theme switch');
+        if (settings.autoRecolor) recolorAllMessages();
     }
 
     // Phase 5A: Preset management with dropdown UI
@@ -877,6 +881,7 @@
                 char.color = swatch.dataset.color;
                 saveHistory(); saveData(); updateCharList(); injectPrompt();
                 popup.remove();
+                if (settings.autoRecolor) recolorAllMessages();
             };
         });
         const closePopup = e => { if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('mousedown', closePopup); } };
@@ -1772,6 +1777,7 @@
                 });
                 saveHistory(); saveData(); injectPrompt(); updateCharList();
             };
+            i.onchange = () => { if (settings.autoRecolor) recolorAllMessages(); };
             i.ondblclick = (e) => { e.preventDefault(); showHarmonyPopup(i.dataset.key, i); };
         });
         list.querySelectorAll('.dc-color-dot').forEach(dot => {
@@ -1972,6 +1978,7 @@
         if ($('dc-autoscan')) $('dc-autoscan').checked = settings.autoScanOnLoad !== false;
         if ($('dc-autoscan-new')) $('dc-autoscan-new').checked = settings.autoScanNewMessages !== false;
         if ($('dc-auto-lock')) $('dc-auto-lock').checked = settings.autoLockDetected !== false;
+        if ($('dc-auto-recolor')) $('dc-auto-recolor').checked = settings.autoRecolor !== false;
         if ($('dc-right-click')) $('dc-right-click').checked = settings.enableRightClick;
         if ($('dc-legend')) $('dc-legend').checked = settings.showLegend;
         if ($('dc-disable-narration')) $('dc-disable-narration').checked = settings.disableNarration !== false;
@@ -2018,6 +2025,7 @@
                         <label class="checkbox_label"><input type="checkbox" id="dc-autoscan"><span>Auto-scan on chat load</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-autoscan-new"><span>Auto-scan new messages</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-auto-lock"><span>Auto-lock detected characters</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-recolor"><span>Auto-recolor on change</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-right-click"><span>Enable right-click context menu</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-disable-narration"><span>Disable narration coloring</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-share-global"><span>Share colors across all chats</span></label>
@@ -2082,6 +2090,7 @@
         $('dc-autoscan').onchange = e => { settings.autoScanOnLoad = e.target.checked; saveData(); };
         $('dc-autoscan-new').onchange = e => { settings.autoScanNewMessages = e.target.checked; saveData(); };
         $('dc-auto-lock').onchange = e => { settings.autoLockDetected = e.target.checked; saveData(); };
+        $('dc-auto-recolor').onchange = e => { settings.autoRecolor = e.target.checked; saveData(); };
         $('dc-right-click').onchange = e => { settings.enableRightClick = e.target.checked; saveData(); };
         $('dc-legend').onchange = e => { settings.showLegend = e.target.checked; saveData(); updateLegend(); };
         $('dc-disable-narration').onchange = e => { settings.disableNarration = e.target.checked; saveData(); injectPrompt(); };
