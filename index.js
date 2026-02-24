@@ -764,6 +764,23 @@
     }
     function invalidateThemeCache() { cachedTheme = null; cachedIsDark = null; }
 
+    function getThemeLightnessBounds() {
+        const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
+        return mode === 'dark'
+            ? { mode, minLightness: 45, maxLightness: 92 }
+            : { mode, minLightness: 12, maxLightness: 65 };
+    }
+
+    function applyThemeReadabilityAndBrightness(hexColor) {
+        const normalized = normalizeHexColor(hexColor);
+        const [h, s, l] = hexToHsl(normalized);
+        const brightness = Number(settings.brightness);
+        const offset = Number.isFinite(brightness) ? Math.max(-100, Math.min(100, brightness)) : 0;
+        const { minLightness, maxLightness } = getThemeLightnessBounds();
+        const adjustedL = Math.max(minLightness, Math.min(maxLightness, l + offset));
+        return hslToHex(h, s, adjustedL);
+    }
+
     // Phase 2B: Prefer characterId over avatar, use ?? for 0-safety
     function getCharKey() {
         try {
@@ -1070,7 +1087,7 @@
 
     function buildPromptInstruction() {
         if (!settings.enabled) return '';
-        const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
+        const { mode, minLightness, maxLightness } = getThemeLightnessBounds();
         const colorList = Object.entries(characterColors)
             .filter(([, v]) => v.locked && v.color)
             .map(([, v]) => `${v.name}=${normalizeHexColor(v.color)}${v.style ? ` (${v.style})` : ''}`)
@@ -1080,8 +1097,9 @@
             `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags.`,
             mode === 'dark' ? 'Use readable colors for a dark background. HARD RULE: Never use dark colors in dark mode. Use medium-to-light colors only; avoid low-lightness shades.' : 'Use readable colors for a light background. HARD RULE: Never use bright colors in light mode. Use medium-to-dark colors only; avoid high-lightness shades.',
         ];
-        if (settings.brightness > 0) parts.push(`Prefer colors ~${settings.brightness}% brighter than normal.`);
-        if (settings.brightness < 0) parts.push(`Prefer colors ~${Math.abs(settings.brightness)}% dimmer than normal.`);
+        parts.push(`HARD RANGE: Keep color lightness between ${minLightness}% and ${maxLightness}% for ${mode} mode. This range is enforced.`);
+        if (settings.brightness > 0) parts.push(`Apply +${settings.brightness}% lightness offset, then clamp to the hard range.`);
+        if (settings.brightness < 0) parts.push(`Apply -${Math.abs(settings.brightness)}% lightness offset, then clamp to the hard range.`);
         const customPalettePrompt = buildCustomPalettePrompt();
         if (customPalettePrompt) {
             parts.push(customPalettePrompt);
@@ -1310,7 +1328,7 @@
             const { name, nicknames } = parseNameWithNicknames(rawName);
             const rawColor = pair.substring(eqIdx + 1).trim();
             if (!name || !rawColor || !/^#[a-fA-F0-9]{6}$/i.test(rawColor)) continue;
-            const color = normalizeHexColor(rawColor);
+            const color = applyThemeReadabilityAndBrightness(rawColor);
             const key = name.toLowerCase();
             if (characterColors[key]) {
                 characterColors[key].dialogueCount = (characterColors[key].dialogueCount || 0) + 1;
