@@ -24,6 +24,7 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 - **Export/Import** - Save and load color schemes as JSON
 - **Export as PNG** - Generate a theme-aware visual legend image (dark/light background)
 - **Color presets** - Save, load, and delete presets via dropdown UI
+- **Recolor messages** - Rewrite all existing message colors to match current assignments after changing a character's color
 - **Smart color suggestions** - Auto-suggests colors based on character names (e.g., "Rose" → pink)
 - **Color harmony** - Double-click a color input to see complementary, triadic, and analogous suggestions
 - **Custom palettes** - Generate palettes from words (optionally LLM-enhanced) or save your current character colors
@@ -127,6 +128,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **Scan** | Scan messages for color blocks |
 | **Clear** | Remove all characters |
 | **Stats** | Show dialogue statistics |
+| **Recolor** | Rewrite font colors in all messages to match current color assignments |
 | **Fix** | Auto-resolve color conflicts (reports which pairs were fixed) |
 | **Regen** | Regenerate all colors |
 | **☀/🌙** | Flip colors for dark↔light theme switch |
