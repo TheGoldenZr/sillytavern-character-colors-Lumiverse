@@ -155,7 +155,7 @@ Effects are visible in chat but stripped from the prompt context.
 The extension automatically imports these regex scripts:
 
 1. **Trim Font Colors** - Removes `<font>` tags from prompt
-2. **Trim Color Blocks** - Removes `[COLORS:...]` from prompt and display
+2. **Trim Color Blocks** - Removes `[COLORS:...]` from prompt (display cleanup is handled by the extension runtime)
 3. **Trim CSS Effects (Prompt)** - Strips CSS transform spans from prompt only (keeps display)
 
 ## Credits

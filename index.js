@@ -18,6 +18,58 @@
         return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    function escapeAttr(s) {
+        return escapeHtml(s);
+    }
+
+    function normalizeHexColor(value, fallback = '#888888') {
+        const color = String(value ?? '').trim();
+        return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : fallback;
+    }
+
+    const VALID_STYLES = new Set(['', 'bold', 'italic', 'bold italic']);
+
+    function normalizeAliases(aliases) {
+        if (!Array.isArray(aliases)) return [];
+        return [...new Set(aliases.map(a => String(a ?? '').trim()).filter(Boolean))];
+    }
+
+    function normalizeCharacterEntry(entry, fallbackName = '') {
+        const name = String(entry?.name ?? fallbackName ?? '').trim();
+        if (!name) return null;
+        return {
+            color: normalizeHexColor(entry?.color),
+            name,
+            locked: !!entry?.locked,
+            aliases: normalizeAliases(entry?.aliases),
+            style: VALID_STYLES.has(entry?.style) ? entry.style : '',
+            dialogueCount: Number.isFinite(entry?.dialogueCount) && entry.dialogueCount > 0 ? Math.floor(entry.dialogueCount) : 0,
+            group: String(entry?.group ?? '').trim()
+        };
+    }
+
+    function normalizeCharacterColors(rawColors) {
+        if (!rawColors || typeof rawColors !== 'object') return {};
+        const normalized = {};
+        for (const [rawKey, entry] of Object.entries(rawColors)) {
+            const normalizedEntry = normalizeCharacterEntry(entry, rawKey);
+            if (!normalizedEntry) continue;
+            const key = normalizedEntry.name.toLowerCase();
+            if (!normalized[key]) {
+                normalized[key] = normalizedEntry;
+                continue;
+            }
+            const existing = normalized[key];
+            existing.locked = existing.locked || normalizedEntry.locked;
+            existing.aliases = [...new Set([...existing.aliases, ...normalizedEntry.aliases])];
+            existing.dialogueCount = Math.max(existing.dialogueCount || 0, normalizedEntry.dialogueCount || 0);
+            if (!existing.group && normalizedEntry.group) existing.group = normalizedEntry.group;
+            if (!existing.style && normalizedEntry.style) existing.style = normalizedEntry.style;
+            if (existing.color === '#888888' && normalizedEntry.color !== '#888888') existing.color = normalizedEntry.color;
+        }
+        return normalized;
+    }
+
     // Optimized color distance calculation
     function colorDistance(color1, color2) {
         const [h1, , l1] = hexToHsl(color1);
@@ -35,6 +87,7 @@
     let searchTerm = '';
     let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, promptDepth: 4 };
     let lastCharKey = null;
+    let lastProcessedMessageSignature = '';
     // Phase 6A: Batch selection state
     let selectedKeys = new Set();
     // Phase 3A: Legend event listener cleanup
@@ -222,7 +275,14 @@
         const name = nameInput?.value?.trim();
         if (!name) { toastr?.warning?.('Enter a preset name'); return; }
         const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
-        presets[name] = Object.entries(characterColors).map(([, v]) => ({ name: v.name, color: v.color, style: v.style, aliases: v.aliases || [], group: v.group || '', locked: v.locked || false }));
+        presets[name] = Object.entries(characterColors).map(([, v]) => ({
+            name: String(v.name ?? '').trim(),
+            color: normalizeHexColor(v.color),
+            style: VALID_STYLES.has(v.style) ? v.style : '',
+            aliases: normalizeAliases(v.aliases),
+            group: String(v.group ?? '').trim(),
+            locked: !!v.locked
+        }));
         localStorage.setItem('dc_presets', JSON.stringify(presets));
         nameInput.value = '';
         refreshPresetDropdown();
@@ -236,16 +296,21 @@
         const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
         if (!presets[name]) { toastr?.error?.('Preset not found'); return; }
         const presetData = presets[name];
+        if (!Array.isArray(presetData)) { toastr?.error?.('Preset is invalid'); return; }
+        let changed = false;
         for (const p of presetData) {
-            const key = p.name.toLowerCase();
-            if (characterColors[key]) {
-                characterColors[key].color = p.color;
-                characterColors[key].style = p.style || '';
-            } else {
-                characterColors[key] = { color: p.color, name: p.name, locked: false, aliases: [], style: p.style || '', dialogueCount: 0, group: '' };
-            }
+            const normalized = normalizeCharacterEntry(p, p?.name);
+            if (!normalized) continue;
+            const key = normalized.name.toLowerCase();
+            const existing = characterColors[key];
+            characterColors[key] = {
+                ...normalized,
+                dialogueCount: existing?.dialogueCount || 0
+            };
+            changed = true;
         }
-        saveHistory(); saveData(); updateCharList(); injectPrompt();
+        if (changed) saveHistory();
+        saveData(); updateCharList(); injectPrompt();
         toastr?.success?.(`Preset "${name}" loaded`);
     }
 
@@ -263,20 +328,37 @@
     function refreshPresetDropdown() {
         const select = document.getElementById('dc-preset-select');
         if (!select) return;
-        const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
+        let presets = {};
+        try { presets = JSON.parse(localStorage.getItem('dc_presets') || '{}') || {}; } catch { }
         const names = Object.keys(presets);
-        select.innerHTML = '<option value="">-- Select Preset --</option>' + names.map(n => `<option value="${n}">${n}</option>`).join('');
+        select.innerHTML = '<option value="">-- Select Preset --</option>' + names.map(n => {
+            const safeName = escapeAttr(n);
+            return `<option value="${safeName}">${safeName}</option>`;
+        }).join('');
     }
 
     // Phase 5C: Custom palettes
     function getCustomPalettes() {
-        try { return JSON.parse(localStorage.getItem('dc_custom_palettes') || '{}'); } catch { return {}; }
+        try {
+            const raw = JSON.parse(localStorage.getItem('dc_custom_palettes') || '{}');
+            if (!raw || typeof raw !== 'object') return {};
+            const cleaned = {};
+            for (const [name, colors] of Object.entries(raw)) {
+                const palette = Array.isArray(colors)
+                    ? colors.map(c => normalizeHexColor(c, null)).filter(Boolean)
+                    : [];
+                if (palette.length) cleaned[String(name)] = [...new Set(palette)];
+            }
+            return cleaned;
+        } catch {
+            return {};
+        }
     }
 
     function saveCustomPalette() {
         const name = prompt('Custom palette name:');
         if (!name?.trim()) return;
-        const colors = Object.values(characterColors).map(c => c.color);
+        const colors = [...new Set(Object.values(characterColors).map(c => normalizeHexColor(c.color, null)).filter(Boolean))];
         if (!colors.length) { toastr?.warning?.('No characters to save palette from'); return; }
         const customs = getCustomPalettes();
         customs[name.trim()] = colors;
@@ -294,19 +376,32 @@
         localStorage.setItem('dc_custom_palettes', JSON.stringify(customs));
         settings.colorTheme = 'pastel';
         saveData();
+        invalidateThemeCache();
         refreshPaletteDropdown();
+        injectPrompt();
         toastr?.success?.(`Custom palette "${paletteName}" deleted`);
     }
 
     function refreshPaletteDropdown() {
         const select = document.getElementById('dc-palette');
         if (!select) return;
-        const builtinOptions = Object.keys(COLOR_THEMES).map(k => `<option value="${k}">${k.charAt(0).toUpperCase() + k.slice(1)}</option>`).join('');
+        const builtinOptions = Object.keys(COLOR_THEMES).map(k => {
+            const safeKey = escapeAttr(k);
+            const safeLabel = escapeHtml(k.charAt(0).toUpperCase() + k.slice(1));
+            return `<option value="${safeKey}">${safeLabel}</option>`;
+        }).join('');
         const customs = getCustomPalettes();
         const customNames = Object.keys(customs);
-        const customOptions = customNames.length ? `<optgroup label="Custom">${customNames.map(n => `<option value="custom:${n}">${n}</option>`).join('')}</optgroup>` : '';
+        const customOptions = customNames.length ? `<optgroup label="Custom">${customNames.map(n => {
+            const safeName = escapeAttr(n);
+            return `<option value="custom:${safeName}">${safeName}</option>`;
+        }).join('')}</optgroup>` : '';
         select.innerHTML = builtinOptions + customOptions;
         select.value = settings.colorTheme;
+        if (select.value !== settings.colorTheme) {
+            settings.colorTheme = 'pastel';
+            select.value = 'pastel';
+        }
     }
 
     // Phase 5D: Color harmony suggestions
@@ -431,11 +526,12 @@
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         entries.forEach(([, v], i) => {
             const y = padding + i * lineHeight + lineHeight / 2;
+            const safeColor = normalizeHexColor(v.color);
             ctx.beginPath();
             ctx.arc(padding + dotSize / 2, y, dotSize / 2, 0, Math.PI * 2);
-            ctx.fillStyle = v.color;
+            ctx.fillStyle = safeColor;
             ctx.fill();
-            ctx.fillStyle = v.color;
+            ctx.fillStyle = safeColor;
             ctx.font = '14px sans-serif';
             ctx.fillText(v.name, padding + dotSize + 8, y + 5);
         });
@@ -455,12 +551,12 @@
             e.preventDefault();
             const existingMenu = document.getElementById('dc-context-menu');
             if (existingMenu) existingMenu.remove();
-            const color = fontTag.getAttribute('color');
+            const color = normalizeHexColor(fontTag.getAttribute('color'));
             const text = fontTag.textContent.substring(0, 30) + (fontTag.textContent.length > 30 ? '...' : '');
             const menu = document.createElement('div');
             menu.id = 'dc-context-menu';
-            const x = e.clientX || e.touches?.[0]?.clientX || 100;
-            const y = e.clientY || e.touches?.[0]?.clientY || 100;
+            const x = e.clientX ?? e.touches?.[0]?.clientX ?? 100;
+            const y = e.clientY ?? e.touches?.[0]?.clientY ?? 100;
             menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:6px;padding:8px;z-index:10001;min-width:180px;color:var(--SmartThemeTextColor);box-shadow:0 4px 12px rgba(0,0,0,0.5);`;
             menu.innerHTML = `
                 <div style="font-size:0.8em;opacity:0.7;margin-bottom:6px;">"${escapeHtml(text)}"</div>
@@ -520,6 +616,7 @@
     }
 
     function saveData() {
+        characterColors = normalizeCharacterColors(characterColors);
         localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
         localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness }));
     }
@@ -543,7 +640,7 @@
         let loaded = false;
         try {
             const d = JSON.parse(localStorage.getItem(primaryKey));
-            if (d?.colors) { characterColors = d.colors; loaded = true; }
+            if (d?.colors) { characterColors = normalizeCharacterColors(d.colors); loaded = true; }
             if (d?.settings) Object.assign(settings, d.settings);
         } catch { }
         if (!loaded) {
@@ -551,13 +648,14 @@
             if (legacyKey !== primaryKey) {
                 try {
                     const d = JSON.parse(localStorage.getItem(legacyKey));
-                    if (d?.colors) { characterColors = d.colors; loaded = true; }
+                    if (d?.colors) { characterColors = normalizeCharacterColors(d.colors); loaded = true; }
                     if (d?.settings) Object.assign(settings, d.settings);
                 } catch { }
             }
         }
         applyGlobal(g);
         colorHistory = [JSON.stringify(characterColors)]; historyIndex = 0;
+        lastProcessedMessageSignature = '';
     }
 
     function exportColors() {
@@ -567,7 +665,17 @@
 
     function importColors(file) {
         const reader = new FileReader();
-        reader.onload = e => { try { const d = JSON.parse(e.target.result); if (d.colors) characterColors = d.colors; if (d.settings) Object.assign(settings, d.settings); saveHistory(); saveData(); updateCharList(); injectPrompt(); toastr?.success?.('Imported!'); } catch { toastr?.error?.('Invalid file'); } };
+        reader.onload = e => {
+            try {
+                const d = JSON.parse(e.target.result);
+                if (d.colors) characterColors = normalizeCharacterColors(d.colors);
+                if (d.settings) Object.assign(settings, d.settings);
+                saveHistory(); saveData(); updateCharList(); injectPrompt();
+                toastr?.success?.('Imported!');
+            } catch {
+                toastr?.error?.('Invalid file');
+            }
+        };
         reader.readAsText(file);
     }
 
@@ -666,7 +774,10 @@
     function buildPromptInstruction() {
         if (!settings.enabled) return '';
         const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
-        const colorList = Object.entries(characterColors).filter(([, v]) => v.locked && v.color).map(([, v]) => `${v.name}=${v.color}${v.style ? ` (${v.style})` : ''}`).join(', ');
+        const colorList = Object.entries(characterColors)
+            .filter(([, v]) => v.locked && v.color)
+            .map(([, v]) => `${v.name}=${normalizeHexColor(v.color)}${v.style ? ` (${v.style})` : ''}`)
+            .join(', ');
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
         const parts = [
             `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags.`,
@@ -693,7 +804,7 @@
         if (!settings.enabled) return '<span style="opacity:0.5">(disabled)</span>';
         const entries = Object.entries(characterColors);
         if (!entries.length) return '<span style="opacity:0.5">(no characters)</span>';
-        return entries.map(([, v]) => `<span style="color:${v.color}">${escapeHtml(v.name)}</span>`).join(', ');
+        return entries.map(([, v]) => `<span style="color:${normalizeHexColor(v.color)}">${escapeHtml(v.name)}</span>`).join(', ');
     }
 
     function injectPrompt() {
@@ -713,9 +824,9 @@
             legend.id = 'dc-legend-float';
 
             const savedPos = JSON.parse(localStorage.getItem('dc_legend_position') || '{}');
-            const top = savedPos.top || 60;
+            const top = savedPos.top ?? 60;
             const left = savedPos.left;
-            const right = savedPos.right || 10;
+            const right = savedPos.right ?? 10;
 
             legend.style.cssText = `position:fixed;top:${top}px;${left !== undefined ? `left:${left}px;` : `right:${right}px;`}background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:8px;padding:8px;z-index:9999;font-size:0.8em;max-width:150px;max-height:60vh;overflow-y:auto;display:none;cursor:move;user-select:none;`;
 
@@ -726,8 +837,9 @@
                 if (e.target.closest('button') || e.target.closest('input')) return;
                 isDragging = true;
                 const rect = legend.getBoundingClientRect();
-                startX = e.clientX || e.touches?.[0]?.clientX;
-                startY = e.clientY || e.touches?.[0]?.clientY;
+                startX = e.clientX ?? e.touches?.[0]?.clientX;
+                startY = e.clientY ?? e.touches?.[0]?.clientY;
+                if (startX == null || startY == null) return;
                 startLeft = rect.left;
                 startTop = rect.top;
                 legend.style.right = 'auto';
@@ -737,8 +849,9 @@
 
             const onMouseMove = (e) => {
                 if (!isDragging) return;
-                const clientX = e.clientX || e.touches?.[0]?.clientX;
-                const clientY = e.clientY || e.touches?.[0]?.clientY;
+                const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+                const clientY = e.clientY ?? e.touches?.[0]?.clientY;
+                if (clientX == null || clientY == null) return;
                 const dx = clientX - startX;
                 const dy = clientY - startY;
                 let newLeft = startLeft + dx;
@@ -785,14 +898,17 @@
         const entries = Object.entries(characterColors);
         if (!entries.length || !settings.showLegend) { legend.style.display = 'none'; return; }
         legend.innerHTML = '<div style="font-weight:bold;margin-bottom:4px;cursor:grab;">⋮⋮ Characters</div>' +
-            entries.map(([, v]) => `<div style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:${v.color};"></span><span style="color:${v.color}">${escapeHtml(v.name)}</span><span style="opacity:0.5;font-size:0.8em;">${v.dialogueCount || 0}</span></div>`).join('');
+            entries.map(([, v]) => {
+                const safeColor = normalizeHexColor(v.color);
+                return `<div style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:${safeColor};"></span><span style="color:${safeColor}">${escapeHtml(v.name)}</span><span style="opacity:0.5;font-size:0.8em;">${v.dialogueCount || 0}</span></div>`;
+            }).join('');
         legend.style.display = settings.showLegend ? 'block' : 'none';
     }
 
     function getDialogueStats() {
         const entries = Object.entries(characterColors);
         const total = entries.reduce((s, [, v]) => s + (v.dialogueCount || 0), 0);
-        return entries.map(([, v]) => ({ name: v.name, count: v.dialogueCount || 0, pct: total ? Math.round((v.dialogueCount || 0) / total * 100) : 0, color: v.color })).sort((a, b) => b.count - a.count);
+        return entries.map(([, v]) => ({ name: v.name, count: v.dialogueCount || 0, pct: total ? Math.round((v.dialogueCount || 0) / total * 100) : 0, color: normalizeHexColor(v.color) })).sort((a, b) => b.count - a.count);
     }
 
     function showStatsPopup() {
@@ -816,7 +932,7 @@
             if (!char) { toastr?.error?.('No character loaded'); return; }
             if (!char.data) char.data = {};
             if (!char.data.extensions) char.data.extensions = {};
-            char.data.extensions.dialogueColors = { colors: characterColors, settings };
+            char.data.extensions.dialogueColors = { colors: normalizeCharacterColors(characterColors), settings };
             saveData();
             saveCharacterDebounced?.();
             toastr?.success?.('Saved to card');
@@ -833,7 +949,7 @@
                 const char = ctx?.characters?.[charId];
                 const data = char?.data?.extensions?.dialogueColors;
                 if (data?.colors) {
-                    characterColors = data.colors;
+                    characterColors = normalizeCharacterColors(data.colors);
                     if (data.settings) Object.assign(settings, data.settings);
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
                     toastr?.success?.('Loaded from card');
@@ -850,7 +966,7 @@
             const char = ctx?.characters?.[ctx?.characterId];
             const data = char?.data?.extensions?.dialogueColors;
             if (data?.colors) {
-                characterColors = data.colors;
+                characterColors = normalizeCharacterColors(data.colors);
                 if (data.settings) Object.assign(settings, data.settings);
                 saveHistory(); saveData();
             }
@@ -877,7 +993,7 @@
             const { name, nicknames } = parseNameWithNicknames(rawName);
             const rawColor = pair.substring(eqIdx + 1).trim();
             if (!name || !rawColor || !/^#[a-fA-F0-9]{6}$/i.test(rawColor)) continue;
-            const color = rawColor;
+            const color = normalizeHexColor(rawColor);
             const key = name.toLowerCase();
             if (characterColors[key]) {
                 characterColors[key].dialogueCount = (characterColors[key].dialogueCount || 0) + 1;
@@ -907,11 +1023,26 @@
         while ((match = colorBlockRegex.exec(mesText.textContent)) !== null) {
             if (processColorPairs(match[1])) foundNew = true;
         }
-        // Remove blocks from innerHTML using the same regex
+        stripColorBlockFromElement(mesText);
+        return foundNew;
+    }
+
+    function stripColorBlockFromElement(element) {
+        const mesText = element?.querySelector?.('.mes_text') || element;
+        if (!mesText) return false;
         const before = mesText.innerHTML;
         const cleaned = before.replace(/\[COLORS?:.*?\]/gis, '');
-        if (cleaned !== before) mesText.innerHTML = cleaned;
-        return foundNew;
+        if (cleaned === before) return false;
+        mesText.innerHTML = cleaned;
+        return true;
+    }
+
+    function stripColorBlocksFromDisplay() {
+        let removed = false;
+        document.querySelectorAll('.mes_text').forEach(el => {
+            if (stripColorBlockFromElement(el)) removed = true;
+        });
+        return removed;
     }
 
     function scanAllMessages() {
@@ -929,6 +1060,7 @@
         }
 
         saveHistory(); saveData(); updateCharList(); injectPrompt();
+        stripColorBlocksFromDisplay();
         const conflicts = checkColorConflicts();
         if (conflicts.length) toastr?.warning?.(`Similar: ${conflicts.slice(0, 3).map(c => c.join(' & ')).join(', ')}`);
         toastr?.info?.(`Found ${Object.keys(characterColors).length} characters`);
@@ -942,19 +1074,27 @@
             if (!chat.length) return;
             const lastMsg = chat[chat.length - 1];
             const text = lastMsg?.mes || '';
+            const sigId = lastMsg?.id ?? lastMsg?.send_date ?? '';
+            const signature = `${chat.length}|${sigId}|${text}`;
+            if (signature === lastProcessedMessageSignature) {
+                stripColorBlockFromElement(document.querySelector('.mes:last-child .mes_text'));
+                return;
+            }
+            lastProcessedMessageSignature = signature;
             const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
             let match;
             while ((match = colorBlockRegex.exec(text)) !== null) {
                 processColorPairs(match[1]);
             }
             saveData(); updateCharList(); injectPrompt();
+            stripColorBlockFromElement(document.querySelector('.mes:last-child .mes_text'));
         }, 600);
     }
 
     function addCharacter(name, color) {
         if (!name.trim()) return;
         const key = name.trim().toLowerCase();
-        const suggested = color || suggestColorForName(name) || getNextColor();
+        const suggested = normalizeHexColor(color, suggestColorForName(name) || getNextColor());
         characterColors[key] = { color: suggested, name: name.trim(), locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
         saveHistory(); saveData(); updateCharList(); injectPrompt();
     }
@@ -975,6 +1115,8 @@
 
         let lastGroup = null;
         list.innerHTML = entries.length ? entries.map(([k, v]) => {
+            const safeKey = escapeAttr(k);
+            const safeColor = normalizeHexColor(v.color);
             let groupHeader = '';
             if (sortMode === 'group') {
                 const g = v.group || '(ungrouped)';
@@ -984,24 +1126,24 @@
                 }
             }
             const aliasChips = (v.aliases || []).map(a =>
-                `<span class="dc-alias-chip" style="display:inline-flex;align-items:center;gap:2px;background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:10px;padding:0 6px;font-size:0.7em;cursor:default;margin:1px;">${escapeHtml(a)}<span class="dc-alias-remove" data-key="${k}" data-alias="${escapeHtml(a)}" style="cursor:pointer;opacity:0.7;margin-left:2px;" title="Remove alias">&times;</span></span>`
+                `<span class="dc-alias-chip" style="display:inline-flex;align-items:center;gap:2px;background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:10px;padding:0 6px;font-size:0.7em;cursor:default;margin:1px;">${escapeHtml(a)}<span class="dc-alias-remove" data-key="${safeKey}" data-alias="${escapeAttr(a)}" style="cursor:pointer;opacity:0.7;margin-left:2px;" title="Remove alias">&times;</span></span>`
             ).join('');
             return groupHeader + `
-            <div class="dc-char ${swapMode === k ? 'dc-swap-selected' : ''} ${selectedKeys.has(k) ? 'dc-batch-selected' : ''}" data-key="${k}" style="display:flex;flex-direction:column;gap:2px;margin:3px 0;padding:2px;border-radius:4px;${swapMode === k ? 'background:var(--SmartThemeQuoteColor);' : ''}${selectedKeys.has(k) ? 'outline:2px solid var(--SmartThemeQuoteColor);' : ''}">
+            <div class="dc-char ${swapMode === k ? 'dc-swap-selected' : ''} ${selectedKeys.has(k) ? 'dc-batch-selected' : ''}" data-key="${safeKey}" style="display:flex;flex-direction:column;gap:2px;margin:3px 0;padding:2px;border-radius:4px;${swapMode === k ? 'background:var(--SmartThemeQuoteColor);' : ''}${selectedKeys.has(k) ? 'outline:2px solid var(--SmartThemeQuoteColor);' : ''}">
                 <div style="display:flex;align-items:center;gap:4px;">
-                    <input type="checkbox" class="dc-batch-check" data-key="${k}" ${selectedKeys.has(k) ? 'checked' : ''} style="width:10px;height:10px;margin:0;">
+                    <input type="checkbox" class="dc-batch-check" data-key="${safeKey}" ${selectedKeys.has(k) ? 'checked' : ''} style="width:10px;height:10px;margin:0;">
                     <span class="dc-color-swatch" style="position:relative;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">
-                        <span class="dc-color-dot" style="width:8px;height:8px;border-radius:50%;background:${v.color};cursor:pointer;"></span>
-                        <input type="color" value="${v.color}" data-key="${k}" class="dc-color-input" style="width:18px;height:18px;padding:0;border:none;cursor:pointer;">
+                        <span class="dc-color-dot" style="width:8px;height:8px;border-radius:50%;background:${safeColor};cursor:pointer;"></span>
+                        <input type="color" value="${safeColor}" data-key="${safeKey}" class="dc-color-input" style="width:18px;height:18px;padding:0;border:none;cursor:pointer;">
                     </span>
-                    <span style="flex:1;color:${v.color};font-size:0.85em;" title="Dialogues: ${v.dialogueCount || 0}${v.aliases?.length ? '\nAliases: ' + escapeHtml(v.aliases.join(', ')) : ''}${v.group ? '\nGroup: ' + escapeHtml(v.group) : ''}">${escapeHtml(v.name)}${v.style ? ` [${v.style[0].toUpperCase()}]` : ''}${getBadge(v.dialogueCount || 0)}</span>
+                    <span style="flex:1;color:${safeColor};font-size:0.85em;" title="Dialogues: ${v.dialogueCount || 0}${v.aliases?.length ? '\nAliases: ' + escapeHtml(v.aliases.join(', ')) : ''}${v.group ? '\nGroup: ' + escapeHtml(v.group) : ''}">${escapeHtml(v.name)}${v.style ? ` [${v.style[0].toUpperCase()}]` : ''}${getBadge(v.dialogueCount || 0)}</span>
                     <span style="font-size:0.7em;opacity:0.6;">${v.dialogueCount || 0}</span>
-                    <button class="dc-lock menu_button" data-key="${k}" style="padding:1px 4px;font-size:0.7em;" title="Lock color">${v.locked ? '🔒' : '🔓'}</button>
-                    <button class="dc-swap menu_button" data-key="${k}" style="padding:1px 4px;font-size:0.7em;" title="Swap colors">⇄</button>
-                    <button class="dc-style menu_button" data-key="${k}" style="padding:1px 4px;font-size:0.7em;" title="Style">S</button>
-                    <button class="dc-alias menu_button" data-key="${k}" style="padding:1px 4px;font-size:0.7em;" title="Add alias">+</button>
-                    <button class="dc-group menu_button" data-key="${k}" style="padding:1px 4px;font-size:0.7em;" title="Assign group">G</button>
-                    <button class="dc-del menu_button" data-key="${k}" style="padding:1px 4px;font-size:0.7em;">&times;</button>
+                    <button class="dc-lock menu_button" data-key="${safeKey}" style="padding:1px 4px;font-size:0.7em;" title="Lock color">${v.locked ? '🔒' : '🔓'}</button>
+                    <button class="dc-swap menu_button" data-key="${safeKey}" style="padding:1px 4px;font-size:0.7em;" title="Swap colors">⇄</button>
+                    <button class="dc-style menu_button" data-key="${safeKey}" style="padding:1px 4px;font-size:0.7em;" title="Style">S</button>
+                    <button class="dc-alias menu_button" data-key="${safeKey}" style="padding:1px 4px;font-size:0.7em;" title="Add alias">+</button>
+                    <button class="dc-group menu_button" data-key="${safeKey}" style="padding:1px 4px;font-size:0.7em;" title="Assign group">G</button>
+                    <button class="dc-del menu_button" data-key="${safeKey}" style="padding:1px 4px;font-size:0.7em;">&times;</button>
                 </div>
                 ${aliasChips ? `<div style="display:flex;flex-wrap:wrap;gap:2px;padding-left:26px;">${aliasChips}</div>` : ''}
             </div>`;
@@ -1009,14 +1151,32 @@
 
         // Color input + double-click for harmony popup
         list.querySelectorAll('.dc-color-input').forEach(i => {
-            i.oninput = () => { const c = characterColors[i.dataset.key]; c.color = i.value; c.aliases?.forEach(a => { const ak = a.toLowerCase(); if (characterColors[ak]) characterColors[ak].color = i.value; }); saveHistory(); saveData(); injectPrompt(); updateCharList(); };
+            i.oninput = () => {
+                const c = characterColors[i.dataset.key];
+                if (!c) return;
+                const nextColor = normalizeHexColor(i.value, c.color);
+                c.color = nextColor;
+                c.aliases?.forEach(a => {
+                    const ak = a.toLowerCase();
+                    if (characterColors[ak]) characterColors[ak].color = nextColor;
+                });
+                saveHistory(); saveData(); injectPrompt(); updateCharList();
+            };
             i.ondblclick = (e) => { e.preventDefault(); showHarmonyPopup(i.dataset.key, i); };
         });
         list.querySelectorAll('.dc-color-dot').forEach(dot => {
             dot.onclick = () => { const input = dot.nextElementSibling; if (input?.classList.contains('dc-color-input')) input.click(); };
         });
         list.querySelectorAll('.dc-del').forEach(b => { b.onclick = () => { delete characterColors[b.dataset.key]; selectedKeys.delete(b.dataset.key); saveHistory(); saveData(); injectPrompt(); updateCharList(); }; });
-        list.querySelectorAll('.dc-lock').forEach(b => { b.onclick = () => { characterColors[b.dataset.key].locked = !characterColors[b.dataset.key].locked; saveData(); updateCharList(); }; });
+        list.querySelectorAll('.dc-lock').forEach(b => {
+            b.onclick = () => {
+                const key = b.dataset.key;
+                if (!characterColors[key]) return;
+                characterColors[key].locked = !characterColors[key].locked;
+                saveHistory();
+                saveData(); updateCharList();
+            };
+        });
         list.querySelectorAll('.dc-swap').forEach(b => {
             b.onclick = () => {
                 if (!swapMode) { swapMode = b.dataset.key; updateCharList(); toastr?.info?.('Click another character to swap'); }
@@ -1029,6 +1189,7 @@
                 const styles = ['', 'bold', 'italic', 'bold italic'];
                 const curr = characterColors[b.dataset.key].style || '';
                 characterColors[b.dataset.key].style = styles[(styles.indexOf(curr) + 1) % styles.length];
+                saveHistory();
                 saveData(); injectPrompt(); updateCharList();
             };
         });
@@ -1046,7 +1207,16 @@
                 inp.focus();
                 const submit = () => {
                     const alias = inp.value.trim();
-                    if (alias) { characterColors[b.dataset.key].aliases = characterColors[b.dataset.key].aliases || []; characterColors[b.dataset.key].aliases.push(alias); saveData(); injectPrompt(); updateCharList(); }
+                    if (alias) {
+                        const aliases = characterColors[b.dataset.key].aliases = characterColors[b.dataset.key].aliases || [];
+                        if (!aliases.includes(alias)) {
+                            aliases.push(alias);
+                            saveHistory();
+                            saveData(); injectPrompt(); updateCharList();
+                        } else {
+                            inputRow.remove();
+                        }
+                    }
                     else inputRow.remove();
                 };
                 inputRow.querySelector('button').onclick = submit;
@@ -1060,8 +1230,12 @@
                 const key = b.dataset.key;
                 const alias = b.dataset.alias;
                 if (characterColors[key]?.aliases) {
-                    characterColors[key].aliases = characterColors[key].aliases.filter(a => a !== alias);
-                    saveData(); injectPrompt(); updateCharList();
+                    const nextAliases = characterColors[key].aliases.filter(a => a !== alias);
+                    if (nextAliases.length !== characterColors[key].aliases.length) {
+                        characterColors[key].aliases = nextAliases;
+                        saveHistory();
+                        saveData(); injectPrompt(); updateCharList();
+                    }
                 }
             };
         });
@@ -1082,8 +1256,14 @@
                 inp.focus();
                 inp.select();
                 const submit = () => {
-                    characterColors[key].group = inp.value.trim();
-                    saveData(); updateCharList();
+                    const nextGroup = inp.value.trim();
+                    if ((characterColors[key]?.group || '') !== nextGroup) {
+                        characterColors[key].group = nextGroup;
+                        saveHistory();
+                        saveData(); updateCharList();
+                    } else {
+                        inputRow.remove();
+                    }
                 };
                 inputRow.querySelector('button').onclick = submit;
                 inp.onkeydown = e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') inputRow.remove(); };
@@ -1329,8 +1509,28 @@
             saveHistory(); saveData(); injectPrompt(); updateCharList();
             toastr?.info?.(`Deleted ${deleted} duplicate-color characters`);
         };
-        $('dc-lock-all').onclick = () => { let count = 0; Object.keys(characterColors).forEach(k => { if (!characterColors[k].locked) { characterColors[k].locked = true; count++; } }); saveData(); updateCharList(); toastr?.info?.(`Locked ${count} characters`); };
-        $('dc-unlock-all').onclick = () => { let count = 0; Object.keys(characterColors).forEach(k => { if (characterColors[k].locked) { characterColors[k].locked = false; count++; } }); saveData(); updateCharList(); toastr?.info?.(`Unlocked ${count} characters`); };
+        $('dc-lock-all').onclick = () => {
+            let count = 0;
+            Object.keys(characterColors).forEach(k => {
+                if (!characterColors[k].locked) {
+                    characterColors[k].locked = true;
+                    count++;
+                }
+            });
+            if (count) saveHistory();
+            saveData(); updateCharList(); toastr?.info?.(`Locked ${count} characters`);
+        };
+        $('dc-unlock-all').onclick = () => {
+            let count = 0;
+            Object.keys(characterColors).forEach(k => {
+                if (characterColors[k].locked) {
+                    characterColors[k].locked = false;
+                    count++;
+                }
+            });
+            if (count) saveHistory();
+            saveData(); updateCharList(); toastr?.info?.(`Unlocked ${count} characters`);
+        };
         $('dc-reset').onclick = () => { if (confirm('Reset all colors?')) { Object.values(characterColors).forEach(c => { if (!c.locked) c.color = getNextColor(); }); saveHistory(); saveData(); updateCharList(); injectPrompt(); } };
         $('dc-search').oninput = e => { searchTerm = e.target.value; updateCharList(); };
         $('dc-sort').onchange = e => { sortMode = e.target.value; updateCharList(); };
@@ -1341,14 +1541,42 @@
         $('dc-batch-all').onclick = () => { Object.keys(characterColors).forEach(k => selectedKeys.add(k)); updateCharList(); };
         $('dc-batch-none').onclick = () => { selectedKeys.clear(); updateCharList(); };
         $('dc-batch-del').onclick = () => { if (!selectedKeys.size) return; selectedKeys.forEach(k => delete characterColors[k]); selectedKeys.clear(); saveHistory(); saveData(); injectPrompt(); updateCharList(); toastr?.info?.('Deleted selected characters'); };
-        $('dc-batch-lock').onclick = () => { selectedKeys.forEach(k => { if (characterColors[k]) characterColors[k].locked = true; }); saveData(); updateCharList(); toastr?.info?.('Locked selected characters'); };
-        $('dc-batch-unlock').onclick = () => { selectedKeys.forEach(k => { if (characterColors[k]) characterColors[k].locked = false; }); saveData(); updateCharList(); toastr?.info?.('Unlocked selected characters'); };
+        $('dc-batch-lock').onclick = () => {
+            let changed = false;
+            selectedKeys.forEach(k => {
+                if (characterColors[k] && !characterColors[k].locked) {
+                    characterColors[k].locked = true;
+                    changed = true;
+                }
+            });
+            if (changed) saveHistory();
+            saveData(); updateCharList(); toastr?.info?.('Locked selected characters');
+        };
+        $('dc-batch-unlock').onclick = () => {
+            let changed = false;
+            selectedKeys.forEach(k => {
+                if (characterColors[k] && characterColors[k].locked) {
+                    characterColors[k].locked = false;
+                    changed = true;
+                }
+            });
+            if (changed) saveHistory();
+            saveData(); updateCharList(); toastr?.info?.('Unlocked selected characters');
+        };
         $('dc-batch-style').onclick = () => {
             const style = prompt('Style for selected (bold, italic, bold italic, or blank):');
             if (style === null) return;
             const styles = ['', 'bold', 'italic', 'bold italic'];
-            const validStyle = styles.includes(style) ? style : '';
-            selectedKeys.forEach(k => { if (characterColors[k]) characterColors[k].style = validStyle; });
+            const normalizedStyle = style.trim().toLowerCase();
+            const validStyle = styles.includes(normalizedStyle) ? normalizedStyle : '';
+            let changed = false;
+            selectedKeys.forEach(k => {
+                if (characterColors[k] && characterColors[k].style !== validStyle) {
+                    characterColors[k].style = validStyle;
+                    changed = true;
+                }
+            });
+            if (changed) saveHistory();
             saveData(); injectPrompt(); updateCharList();
         };
 
@@ -1410,12 +1638,17 @@
             loadData();
             if (!Object.keys(characterColors).length) tryLoadFromCard();
             lastCharKey = currentCharKey;
+            lastProcessedMessageSignature = '';
             syncUIWithSettings();
         }
         updateCharList();
         injectPrompt();
+        stripColorBlocksFromDisplay();
         if (settings.autoScanOnLoad !== false && !Object.keys(characterColors).length) {
-            setTimeout(() => { if (document.querySelectorAll('.mes').length) scanAllMessages(); }, 1000);
+            setTimeout(() => {
+                if (document.querySelectorAll('.mes').length) scanAllMessages();
+                stripColorBlocksFromDisplay();
+            }, 1000);
         }
     });
 })();

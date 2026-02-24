@@ -1,5 +1,5 @@
 # Dialogue Colors Extension
-#cc-ext .inline-drawer-content { font-size: 0.9em; }
+#dc-ext .inline-drawer-content { font-size: 0.9em; }
 .cc-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .cc-row select { flex: 1; padding: 4px; }
 .cc-char-item { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
