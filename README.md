@@ -25,6 +25,8 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 - **Export as PNG** - Generate a theme-aware visual legend image (dark/light background)
 - **Color presets** - Save, load, and delete presets via dropdown UI
 - **Recolor messages** - Rewrite all existing message colors to match current assignments after changing a character's color
+- **Auto-recolor** - Automatically recolor + reload chat when colors change via picker, harmony popup, regen, or theme flip (default: on)
+- **Auto-brightness** - Automatically recolor messages when the brightness slider changes (default: off)
 - **Smart color suggestions** - Auto-suggests colors based on character names (e.g., "Rose" → pink)
 - **Color harmony** - Double-click a color input to see complementary, triadic, and analogous suggestions
 - **Custom palettes** - Generate palettes from words (optionally LLM-enhanced) or save your current character colors
@@ -108,6 +110,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **Gen** (Palette) | Generate a custom palette from words (name + optional notes) |
 | **+/−** (Palette) | Save current colors as custom palette / Delete custom palette |
 | **Brightness** | Adjust all colors lighter/darker |
+| **Auto-brightness** | Automatically recolor messages on brightness change (default: off) |
 
 ### Behavior Section
 | Control | Function |
@@ -115,6 +118,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **Auto-scan on chat load** | Scan for characters when opening a chat |
 | **Auto-scan new messages** | Scan each new generated message for colors |
 | **Auto-lock detected characters** | Automatically lock newly detected characters |
+| **Auto-recolor on change** | Recolor + reload chat when colors change (default: on) |
 | **Enable right-click context menu** | Enable right-click/long-press color assignment |
 | **Disable narration** | Exclude narrator from coloring |
 | **Share colors globally** | Use same colors across all chats |
