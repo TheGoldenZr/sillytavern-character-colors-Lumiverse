@@ -1078,7 +1078,7 @@
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
         const parts = [
             `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags.`,
-            mode === 'dark' ? 'Use readable colors for a dark background.' : 'Use readable colors for a light background.',
+            mode === 'dark' ? 'Use readable colors for a dark background. HARD RULE: Never use dark colors in dark mode. Use medium-to-light colors only; avoid low-lightness shades.' : 'Use readable colors for a light background. HARD RULE: Never use bright colors in light mode. Use medium-to-dark colors only; avoid high-lightness shades.',
         ];
         if (settings.brightness > 0) parts.push(`Prefer colors ~${settings.brightness}% brighter than normal.`);
         if (settings.brightness < 0) parts.push(`Prefer colors ~${Math.abs(settings.brightness)}% dimmer than normal.`);
