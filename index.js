@@ -2,7 +2,7 @@
     'use strict';
 
     const { extension_settings, saveSettingsDebounced, getContext } = await import('../../../extensions.js');
-    const { eventSource, event_types, setExtensionPrompt, saveCharacterDebounced, getCharacters, extension_prompt_types, extension_prompt_roles } = await import('../../../../script.js');
+    const { eventSource, event_types, setExtensionPrompt, saveCharacterDebounced, getCharacters, extension_prompt_types, extension_prompt_roles, generateQuietPrompt } = await import('../../../../script.js');
 
     // Cache frequently used DOM queries
     const domCache = new Map();
@@ -85,7 +85,7 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, promptDepth: 4 };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4 };
     let lastCharKey = null;
     let lastProcessedMessageSignature = '';
     // Phase 6A: Batch selection state
@@ -338,9 +338,54 @@
     }
 
     // Phase 5C: Custom palettes
+    const CUSTOM_PALETTE_KEY = 'dc_custom_palettes';
+    const CUSTOM_PALETTE_META_KEY = 'dc_custom_palette_meta';
+    const CUSTOM_PALETTE_SIZE = 8;
+
+    const PALETTE_STOPWORDS = new Set([
+        'the', 'a', 'an', 'and', 'or', 'of', 'to', 'with', 'for', 'in', 'on', 'at', 'from', 'by',
+        'style', 'theme', 'vibe', 'tones', 'tone', 'colors', 'color', 'palette', 'pal', 'like', 'as'
+    ]);
+
+    const PALETTE_KEYWORDS = {
+        psychedelic: { hueSeeds: [300, 200, 120, 30], sat: [80, 100], light: [45, 70], contrast: 'high' },
+        trippy: { hueSeeds: [300, 190, 90, 30], sat: [80, 100], light: [45, 70], contrast: 'high' },
+        neon: { hueSeeds: [320, 180, 90, 45], sat: [85, 100], light: [50, 65], contrast: 'high' },
+        vibrant: { sat: [70, 100], light: [45, 70], contrast: 'high' },
+        vivid: { sat: [75, 100], light: [45, 70], contrast: 'high' },
+        pastel: { sat: [20, 50], light: [70, 85], contrast: 'low' },
+        soft: { sat: [20, 45], light: [65, 85], contrast: 'low' },
+        muted: { sat: [15, 40], light: [35, 65], contrast: 'low' },
+        desaturated: { sat: [10, 35], light: [35, 65], contrast: 'low' },
+        warm: { hueSeeds: [10, 30, 45, 0], sat: [50, 85] },
+        cool: { hueSeeds: [180, 200, 220, 260], sat: [45, 80] },
+        forest: { hueSeeds: [90, 110, 130, 150], sat: [35, 65], light: [30, 55] },
+        ocean: { hueSeeds: [180, 200, 220], sat: [45, 75], light: [35, 65] },
+        sunset: { hueSeeds: [10, 25, 40, 330], sat: [55, 90], light: [45, 70] },
+        sunrise: { hueSeeds: [10, 25, 40, 330], sat: [55, 90], light: [50, 75] },
+        aurora: { hueSeeds: [260, 290, 170, 200], sat: [45, 80], light: [55, 80] },
+        noir: { hueSeeds: [210, 240, 280], sat: [15, 45], light: [15, 35], contrast: 'high' },
+        gothic: { hueSeeds: [280, 320, 220], sat: [20, 55], light: [15, 40], contrast: 'high' },
+        dark: { sat: [15, 55], light: [15, 40], contrast: 'high' },
+        light: { light: [65, 85], sat: [40, 80], contrast: 'low' },
+        bright: { light: [60, 85], sat: [60, 95], contrast: 'high' },
+        earthy: { hueSeeds: [20, 35, 60, 90], sat: [20, 55], light: [30, 60] },
+        jewel: { hueSeeds: [300, 220, 150, 30], sat: [55, 85], light: [30, 55] },
+        berry: { hueSeeds: [330, 350, 310], sat: [55, 85], light: [40, 60] },
+        sepia: { hueSeeds: [30, 35, 45], sat: [20, 50], light: [40, 70] },
+        vintage: { sat: [20, 50], light: [45, 70] },
+        retro: { hueSeeds: [20, 140, 200, 340], sat: [35, 70], light: [40, 70] },
+        cyberpunk: { hueSeeds: [300, 190, 90], sat: [80, 100], light: [45, 65], contrast: 'high' },
+        vaporwave: { hueSeeds: [300, 330, 190], sat: [60, 90], light: [55, 75] },
+        cottagecore: { hueSeeds: [20, 40, 90, 140], sat: [25, 55], light: [65, 85], contrast: 'low' },
+        monochrome: { monochrome: true, sat: [0, 5], light: [15, 85] },
+        grayscale: { monochrome: true, sat: [0, 5], light: [15, 85] },
+        greyscale: { monochrome: true, sat: [0, 5], light: [15, 85] }
+    };
+
     function getCustomPalettes() {
         try {
-            const raw = JSON.parse(localStorage.getItem('dc_custom_palettes') || '{}');
+            const raw = JSON.parse(localStorage.getItem(CUSTOM_PALETTE_KEY) || '{}');
             if (!raw || typeof raw !== 'object') return {};
             const cleaned = {};
             for (const [name, colors] of Object.entries(raw)) {
@@ -355,14 +400,265 @@
         }
     }
 
+    function getCustomPaletteMeta() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(CUSTOM_PALETTE_META_KEY) || '{}');
+            return raw && typeof raw === 'object' ? raw : {};
+        } catch {
+            return {};
+        }
+    }
+
+    function saveCustomPaletteMeta(meta) {
+        try { localStorage.setItem(CUSTOM_PALETTE_META_KEY, JSON.stringify(meta || {})); } catch { }
+    }
+
+    function setCustomPaletteMetaEntry(name, entry) {
+        const meta = getCustomPaletteMeta();
+        meta[String(name)] = entry;
+        saveCustomPaletteMeta(meta);
+    }
+
+    function deleteCustomPaletteMetaEntry(name) {
+        const meta = getCustomPaletteMeta();
+        delete meta[String(name)];
+        saveCustomPaletteMeta(meta);
+    }
+
+    function tokenizePalettePrompt(name, notes) {
+        const text = `${name || ''} ${notes || ''}`.toLowerCase();
+        const tokens = text.match(/[a-z0-9]+/g) || [];
+        return tokens.filter(t => t.length > 1 && !PALETTE_STOPWORDS.has(t));
+    }
+
+    function mergeRange(base, next) {
+        if (!next) return base;
+        if (!base) return [next[0], next[1]];
+        const low = Math.max(base[0], next[0]);
+        const high = Math.min(base[1], next[1]);
+        if (low <= high) return [low, high];
+        return [Math.min(base[0], next[0]), Math.max(base[1], next[1])];
+    }
+
+    function clampRange(range, min = 0, max = 100) {
+        if (!range) return null;
+        const lo = Math.max(min, Math.min(max, range[0]));
+        const hi = Math.max(min, Math.min(max, range[1]));
+        if (lo === hi) return [lo, hi];
+        return lo < hi ? [lo, hi] : [hi, lo];
+    }
+
+    function applyProfileHint(profile, hint) {
+        if (hint.hueSeeds?.length) profile.hueSeeds.push(...hint.hueSeeds);
+        if (hint.sat) profile.satRange = clampRange(mergeRange(profile.satRange, hint.sat));
+        if (hint.light) profile.lightRange = clampRange(mergeRange(profile.lightRange, hint.light));
+        if (hint.contrast === 'high') profile.contrast = Math.max(profile.contrast, 2);
+        if (hint.contrast === 'low') profile.contrast = Math.min(profile.contrast, 0);
+        if (hint.monochrome) profile.monochrome = true;
+    }
+
+    function derivePaletteProfile(tokens) {
+        const profile = {
+            hueSeeds: [],
+            satRange: [45, 85],
+            lightRange: [35, 70],
+            contrast: 1,
+            monochrome: false,
+            hueSpread: 28
+        };
+
+        for (const token of tokens) {
+            if (COLOR_NAME_MAP.has(token)) profile.hueSeeds.push(COLOR_NAME_MAP.get(token));
+            const hint = PALETTE_KEYWORDS[token];
+            if (hint) applyProfileHint(profile, hint);
+        }
+
+        if (profile.monochrome) {
+            profile.hueSeeds = [0];
+            profile.satRange = [0, 5];
+        }
+
+        if (!profile.hueSeeds.length) {
+            if (tokens.includes('warm')) profile.hueSeeds = [10, 30, 45, 0];
+            else if (tokens.includes('cool')) profile.hueSeeds = [180, 200, 220, 260];
+            else profile.hueSeeds = [0, 30, 60, 120, 180, 210, 270, 330];
+        }
+
+        if (profile.contrast === 2) {
+            profile.lightRange = clampRange([profile.lightRange[0] - 10, profile.lightRange[1] + 10], 5, 95);
+        } else if (profile.contrast === 0) {
+            const mid = (profile.lightRange[0] + profile.lightRange[1]) / 2;
+            const spread = Math.max(6, (profile.lightRange[1] - profile.lightRange[0]) / 2 - 6);
+            profile.lightRange = clampRange([mid - spread, mid + spread], 10, 90);
+        }
+
+        return profile;
+    }
+
+    function isColorTooClose(color, palette) {
+        return palette.some(existing => colorDistance(existing, color));
+    }
+
+    function buildPaletteFromProfile(profile, count = CUSTOM_PALETTE_SIZE) {
+        const palette = [];
+        const attemptsLimit = count * 40;
+        let attempts = 0;
+
+        if (profile.monochrome) {
+            for (let i = 0; i < count; i++) {
+                const t = (i + 1) / (count + 1);
+                const l = profile.lightRange[0] + (profile.lightRange[1] - profile.lightRange[0]) * t;
+                palette.push(hslToHex(0, 0, Math.round(l)));
+            }
+            return palette;
+        }
+
+        const seeds = profile.hueSeeds.slice();
+        while (palette.length < count && attempts < attemptsLimit) {
+            const idx = palette.length % seeds.length;
+            const baseHue = seeds[idx];
+            const hue = (baseHue + (Math.random() * 2 - 1) * profile.hueSpread + 360) % 360;
+            const sat = profile.satRange[0] + Math.random() * (profile.satRange[1] - profile.satRange[0]);
+            const light = profile.lightRange[0] + Math.random() * (profile.lightRange[1] - profile.lightRange[0]);
+            const color = hslToHex(hue, Math.round(sat), Math.round(light));
+            if (!isColorTooClose(color, palette)) palette.push(color);
+            attempts++;
+        }
+
+        return palette;
+    }
+
+    function sanitizeGeneratedPalette(colors, profile, count = CUSTOM_PALETTE_SIZE) {
+        const cleaned = [];
+        for (const c of Array.isArray(colors) ? colors : []) {
+            const raw = String(c ?? '').trim();
+            const candidate = /^[0-9a-fA-F]{6}$/.test(raw) ? `#${raw}` : raw;
+            const normalized = normalizeHexColor(candidate, null);
+            if (normalized && !cleaned.includes(normalized)) cleaned.push(normalized);
+        }
+
+        let attempts = 0;
+        while (cleaned.length < count && attempts < count * 40) {
+            const extra = buildPaletteFromProfile(profile, count);
+            for (const color of extra) {
+                if (!cleaned.includes(color) && !isColorTooClose(color, cleaned)) cleaned.push(color);
+                if (cleaned.length >= count) break;
+            }
+            attempts++;
+        }
+
+        if (cleaned.length < count) {
+            const fallback = COLOR_THEMES.pastel.map(([h, s, l]) => hslToHex(h, s, l));
+            for (const color of fallback) {
+                if (!cleaned.includes(color)) cleaned.push(color);
+                if (cleaned.length >= count) break;
+            }
+        }
+
+        return cleaned.slice(0, count);
+    }
+
+    function generateHeuristicPalette(name, notes, count = CUSTOM_PALETTE_SIZE) {
+        const tokens = tokenizePalettePrompt(name, notes);
+        const profile = derivePaletteProfile(tokens);
+        const base = buildPaletteFromProfile(profile, count);
+        const palette = sanitizeGeneratedPalette(base, profile, count);
+        return { palette, profile, tokens };
+    }
+
+    async function enhancePaletteWithLLM(name, notes, basePalette, profile, count = CUSTOM_PALETTE_SIZE) {
+        if (typeof generateQuietPrompt !== 'function') return null;
+        const promptNotes = notes?.trim() ? notes.trim() : 'None';
+        const instruction = [
+            'Generate a color palette as a JSON array of hex colors.',
+            `Theme: "${name}".`,
+            `Notes: "${promptNotes}".`,
+            `Return exactly ${count} colors.`,
+            'Each item must be a string like "#RRGGBB".',
+            `Base palette (optional inspiration): ${JSON.stringify(basePalette)}.`,
+            'Return ONLY the JSON array and nothing else.'
+        ].join(' ');
+
+        const jsonSchema = {
+            type: 'array',
+            minItems: count,
+            maxItems: count,
+            items: { type: 'string', pattern: '^#?[0-9a-fA-F]{6}$' }
+        };
+
+        let response = '';
+        try {
+            response = await generateQuietPrompt({
+                quietPrompt: instruction,
+                skipWIAN: true,
+                quietName: `PaletteGen_${Date.now()}`,
+                quietToLoud: false,
+                jsonSchema
+            });
+        } catch (e) {
+            console.warn('[Dialogue Colors] LLM palette generation failed:', e);
+            return null;
+        }
+
+        if (!response || typeof response !== 'string') return null;
+        let jsonText = response.trim();
+        if (!jsonText.startsWith('[')) {
+            const match = jsonText.match(/\[[\s\S]*\]/);
+            if (!match) return null;
+            jsonText = match[0];
+        }
+        let parsed;
+        try {
+            parsed = JSON.parse(jsonText);
+        } catch {
+            return null;
+        }
+        if (!Array.isArray(parsed)) return null;
+        const sanitized = sanitizeGeneratedPalette(parsed, profile, count);
+        return sanitized.length ? sanitized : null;
+    }
+
+    async function generateCustomPaletteFromWords() {
+        const rawName = prompt('Custom palette name (required):');
+        const name = rawName?.trim();
+        if (!name) return;
+        const notes = prompt('Theme notes (optional):') || '';
+        const customs = getCustomPalettes();
+        if (customs[name] && !confirm(`Custom palette "${name}" exists. Overwrite?`)) return;
+
+        const { palette: basePalette, profile } = generateHeuristicPalette(name, notes);
+        let finalPalette = basePalette;
+        let source = 'heuristic';
+
+        if (settings.llmEnhanceCustomPalettes !== false) {
+            const enhanced = await enhancePaletteWithLLM(name, notes, basePalette, profile, CUSTOM_PALETTE_SIZE);
+            if (enhanced) {
+                finalPalette = enhanced;
+                source = 'llm';
+            } else {
+                source = 'hybrid-fallback';
+                toastr?.info?.('LLM enhancement unavailable, used local palette');
+            }
+        }
+
+        customs[name] = finalPalette;
+        localStorage.setItem(CUSTOM_PALETTE_KEY, JSON.stringify(customs));
+        setCustomPaletteMetaEntry(name, { source, notes: notes.trim(), createdAt: Date.now() });
+        refreshPaletteDropdown();
+        const label = source === 'llm' ? 'LLM-enhanced' : (source === 'hybrid-fallback' ? 'local fallback' : 'local');
+        toastr?.success?.(`Custom palette "${name}" saved (${label})`);
+    }
+
     function saveCustomPalette() {
         const name = prompt('Custom palette name:');
         if (!name?.trim()) return;
         const colors = [...new Set(Object.values(characterColors).map(c => normalizeHexColor(c.color, null)).filter(Boolean))];
         if (!colors.length) { toastr?.warning?.('No characters to save palette from'); return; }
         const customs = getCustomPalettes();
+        if (customs[name.trim()] && !confirm(`Custom palette "${name.trim()}" exists. Overwrite?`)) return;
         customs[name.trim()] = colors;
-        localStorage.setItem('dc_custom_palettes', JSON.stringify(customs));
+        localStorage.setItem(CUSTOM_PALETTE_KEY, JSON.stringify(customs));
+        setCustomPaletteMetaEntry(name.trim(), { source: 'heuristic', notes: '', createdAt: Date.now() });
         refreshPaletteDropdown();
         toastr?.success?.(`Custom palette "${name.trim()}" saved`);
     }
@@ -373,7 +669,8 @@
         const paletteName = select.value.slice(7);
         const customs = getCustomPalettes();
         delete customs[paletteName];
-        localStorage.setItem('dc_custom_palettes', JSON.stringify(customs));
+        localStorage.setItem(CUSTOM_PALETTE_KEY, JSON.stringify(customs));
+        deleteCustomPaletteMetaEntry(paletteName);
         settings.colorTheme = 'pastel';
         saveData();
         invalidateThemeCache();
@@ -1323,6 +1620,7 @@
         if ($('dc-disable-narration')) $('dc-disable-narration').checked = settings.disableNarration !== false;
         if ($('dc-share-global')) $('dc-share-global').checked = settings.shareColorsGlobally || false;
         if ($('dc-css-effects')) $('dc-css-effects').checked = settings.cssEffects || false;
+        if ($('dc-llm-palette')) $('dc-llm-palette').checked = settings.llmEnhanceCustomPalettes !== false;
         if ($('dc-theme')) $('dc-theme').value = settings.themeMode;
         if ($('dc-brightness')) { $('dc-brightness').value = settings.brightness || 0; }
         if ($('dc-bright-val')) $('dc-bright-val').textContent = settings.brightness || 0;
@@ -1348,7 +1646,7 @@
                         <label class="checkbox_label"><input type="checkbox" id="dc-legend"><span>Show floating legend</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-css-effects"><span>CSS effects (emotion/magic transforms)</span></label>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Theme:</label><select id="dc-theme" class="text_pole" style="flex:1;"><option value="auto">Auto</option><option value="dark">Dark</option><option value="light">Light</option></select></div>
-                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Palette:</label><select id="dc-palette" class="text_pole" style="flex:1;"></select><button id="dc-save-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Save current colors as custom palette">+</button><button id="dc-del-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Delete custom palette">&minus;</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Palette:</label><select id="dc-palette" class="text_pole" style="flex:1;"></select><button id="dc-gen-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Generate custom palette from words">Gen</button><button id="dc-save-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Save current colors as custom palette">+</button><button id="dc-del-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Delete custom palette">&minus;</button></div>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Bright:</label><input type="range" id="dc-brightness" min="-100" max="100" value="0" style="flex:1;"><span id="dc-bright-val">0</span></div>
                     </div>
                 </details>
@@ -1361,6 +1659,7 @@
                         <label class="checkbox_label"><input type="checkbox" id="dc-right-click"><span>Enable right-click context menu</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-disable-narration"><span>Disable narration coloring</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-share-global"><span>Share colors across all chats</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-llm-palette"><span>Enhance generated palettes with LLM</span></label>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;"><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;"><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;"></div>
@@ -1425,6 +1724,7 @@
         $('dc-disable-narration').onchange = e => { settings.disableNarration = e.target.checked; saveData(); injectPrompt(); };
         $('dc-share-global').onchange = e => { settings.shareColorsGlobally = e.target.checked; saveData(); loadData(); updateCharList(); injectPrompt(); };
         $('dc-css-effects').onchange = e => { settings.cssEffects = e.target.checked; saveData(); injectPrompt(); };
+        $('dc-llm-palette').onchange = e => { settings.llmEnhanceCustomPalettes = e.target.checked; saveData(); };
         $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); saveData(); injectPrompt(); };
         $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
         $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; saveData(); invalidateThemeCache(); injectPrompt(); };
@@ -1443,6 +1743,7 @@
         $('dc-save-preset').onclick = saveColorPreset;
         $('dc-load-preset').onclick = loadColorPreset;
         $('dc-delete-preset').onclick = deleteColorPreset;
+        $('dc-gen-palette').onclick = async () => { await generateCustomPaletteFromWords(); };
         $('dc-save-palette').onclick = saveCustomPalette;
         $('dc-del-palette').onclick = deleteCustomPalette;
         $('dc-card').onclick = autoAssignFromCard;

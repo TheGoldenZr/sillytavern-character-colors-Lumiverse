@@ -26,12 +26,20 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 - **Color presets** - Save, load, and delete presets via dropdown UI
 - **Smart color suggestions** - Auto-suggests colors based on character names (e.g., "Rose" → pink)
 - **Color harmony** - Double-click a color input to see complementary, triadic, and analogous suggestions
-- **Custom palettes** - Save your current character colors as a reusable custom palette
+- **Custom palettes** - Generate palettes from words (optionally LLM-enhanced) or save your current character colors
 
 ### Palettes
 - Pastel, Neon, Earth, Jewel, Muted, Jade, Forest, Ocean, Sunset, Aurora, Warm, Cool, Berry, Monochrome
 - **Colorblind-friendly:** Protanopia, Deuteranopia, Tritanopia
-- **Custom palettes** - Save and select your own palettes alongside the built-in ones
+- **Custom palettes** - Generate from words or save snapshots alongside the built-in ones
+
+### Word-Based Custom Palettes
+Click **Gen** next to the Palette dropdown, enter a palette name, and add optional notes. If LLM enhancement is enabled, the result is refined by the LLM; if it fails, the extension automatically falls back to the local generator.
+
+Example prompts:
+- Psychedelic
+- Noir rain city
+- Soft cottagecore sunrise
 
 ### CSS Effects
 *Inspired by [Prolix's Lucid Loom](https://github.com/prolix-oc/ST-Presets)*
@@ -96,6 +104,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **CSS effects** | Enable emotion/magic CSS transforms |
 | **Theme** | Auto/Dark/Light mode |
 | **Palette** | Choose from 17 built-in + custom palettes |
+| **Gen** (Palette) | Generate a custom palette from words (name + optional notes) |
 | **+/−** (Palette) | Save current colors as custom palette / Delete custom palette |
 | **Brightness** | Adjust all colors lighter/darker |
 
@@ -108,6 +117,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **Enable right-click context menu** | Enable right-click/long-press color assignment |
 | **Disable narration** | Exclude narrator from coloring |
 | **Share colors globally** | Use same colors across all chats |
+| **Enhance generated palettes with LLM** | Optional LLM refinement with automatic local fallback |
 | **Narrator** | Set narrator color |
 | **Thoughts** | Symbols for inner thoughts |
 
