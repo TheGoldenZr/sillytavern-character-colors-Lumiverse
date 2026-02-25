@@ -22,6 +22,22 @@
         return escapeHtml(s);
     }
 
+    function normalizeBoolean(value, fallback = false) {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value !== 0;
+        if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+            if (['false', '0', 'no', 'off', ''].includes(normalized)) return false;
+        }
+        return fallback;
+    }
+
+    function normalizeToggleSettings() {
+        settings.autoBrightness = normalizeBoolean(settings.autoBrightness, false);
+        settings.autoRecolor = normalizeBoolean(settings.autoRecolor, true);
+    }
+
     function normalizeHexColor(value, fallback = '#888888') {
         const color = String(value ?? '').trim();
         return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : fallback;
@@ -1174,6 +1190,7 @@
     }
 
     function saveData() {
+        normalizeToggleSettings();
         characterColors = normalizeCharacterColors(characterColors);
         settings.colorSchemaVersion = COLOR_SCHEMA_VERSION;
         syncAllEffectiveColors();
@@ -1251,6 +1268,7 @@
             }
         }
         applyGlobal(g);
+        normalizeToggleSettings();
         if (migrateColorSchemaIfNeeded()) {
             saveData();
         }
@@ -1275,6 +1293,7 @@
                 } else if (d.colors) {
                     settings.colorSchemaVersion = 0;
                 }
+                normalizeToggleSettings();
                 migrateColorSchemaIfNeeded();
                 saveHistory(); saveData(); updateCharList(); injectPrompt();
                 toastr?.success?.('Imported!');
@@ -1587,6 +1606,7 @@
                     } else {
                         settings.colorSchemaVersion = 0;
                     }
+                    normalizeToggleSettings();
                     migrateColorSchemaIfNeeded();
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
                     toastr?.success?.('Loaded from card');
@@ -1610,6 +1630,7 @@
                 } else {
                     settings.colorSchemaVersion = 0;
                 }
+                normalizeToggleSettings();
                 migrateColorSchemaIfNeeded();
                 saveHistory(); saveData();
             }
@@ -1856,9 +1877,16 @@
 
             // Step 4: Persist and reload
             if (recoloredCount > 0) {
-                await ctx.saveChat();
-                toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Reloading chat...`);
-                await ctx.reloadCurrentChat();
+                if (typeof ctx?.saveChat === 'function') await ctx.saveChat();
+                if (typeof ctx?.reloadCurrentChat === 'function') {
+                    toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Reloading chat...`);
+                    await ctx.reloadCurrentChat();
+                } else if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
+                    toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Refreshing chat...`);
+                    eventSource.emit(event_types.CHAT_CHANGED);
+                } else {
+                    toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}.`);
+                }
             } else {
                 toastr?.info?.('No messages needed recoloring.');
             }
@@ -2171,13 +2199,14 @@
     // Phase 1C: Sync UI elements with current settings (deduplicates createUI and CHAT_CHANGED)
     function syncUIWithSettings() {
         const $ = id => document.getElementById(id);
+        normalizeToggleSettings();
         if ($('dc-enabled')) $('dc-enabled').checked = settings.enabled;
         if ($('dc-highlight')) $('dc-highlight').checked = settings.highlightMode;
         if ($('dc-autoscan')) $('dc-autoscan').checked = settings.autoScanOnLoad !== false;
         if ($('dc-autoscan-new')) $('dc-autoscan-new').checked = settings.autoScanNewMessages !== false;
         if ($('dc-auto-lock')) $('dc-auto-lock').checked = settings.autoLockDetected !== false;
         if ($('dc-auto-recolor')) $('dc-auto-recolor').checked = settings.autoRecolor !== false;
-        if ($('dc-auto-brightness')) $('dc-auto-brightness').checked = settings.autoBrightness || false;
+        if ($('dc-auto-brightness')) $('dc-auto-brightness').checked = settings.autoBrightness === true;
         if ($('dc-right-click')) $('dc-right-click').checked = settings.enableRightClick;
         if ($('dc-legend')) $('dc-legend').checked = settings.showLegend;
         if ($('dc-disable-narration')) $('dc-disable-narration').checked = settings.disableNarration !== false;
@@ -2315,7 +2344,10 @@
         $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); if (settings.autoRecolor) recolorAllMessages(); };
         $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
         $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); };
-        $('dc-brightness').onchange = () => { if (settings.autoBrightness) recolorAllMessages(); };
+        $('dc-brightness').onchange = () => {
+            normalizeToggleSettings();
+            if (settings.autoBrightness === true) recolorAllMessages();
+        };
         $('dc-narrator').oninput = e => { settings.narratorColor = e.target.value; saveData(); injectPrompt(); };
         $('dc-narrator-clear').onclick = () => { settings.narratorColor = ''; $('dc-narrator').value = '#888888'; saveData(); injectPrompt(); };
         $('dc-thought-symbols').oninput = e => { settings.thoughtSymbols = e.target.value; saveData(); injectPrompt(); };
