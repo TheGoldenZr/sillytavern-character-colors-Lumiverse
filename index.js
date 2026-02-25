@@ -1036,6 +1036,7 @@
     function syncAllEffectiveColors() {
         for (const entry of Object.values(characterColors)) {
             if (!entry) continue;
+            if (entry.locked) continue;
             setEntryFromBaseColor(entry, getBaseColor(entry));
         }
     }
