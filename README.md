@@ -74,6 +74,14 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
+## What's New in 3.1.1
+
+- Fixed recolor brightness/theme overshoot caused by double color adjustment.
+- Added a one-time color schema migration for legacy chats to normalize existing assignments.
+- Recolor now rewrites `<font>` tags with `color=...` even when additional font attributes are present.
+- Auto theme detection now refreshes correctly in `Auto` mode when SillyTavern theme background changes.
+- Legend, stats, prompt preview, and character list swatches now stay in sync with effective recolored chat output.
+
 ## Installation
 
 1. Open SillyTavern → Extensions → Install Extension

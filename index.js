@@ -37,8 +37,11 @@
     function normalizeCharacterEntry(entry, fallbackName = '') {
         const name = String(entry?.name ?? fallbackName ?? '').trim();
         if (!name) return null;
+        const color = normalizeHexColor(entry?.color);
+        const baseColor = normalizeHexColor(entry?.baseColor, color);
         return {
-            color: normalizeHexColor(entry?.color),
+            color,
+            baseColor,
             name,
             locked: !!entry?.locked,
             aliases: normalizeAliases(entry?.aliases),
@@ -65,6 +68,7 @@
             existing.dialogueCount = Math.max(existing.dialogueCount || 0, normalizedEntry.dialogueCount || 0);
             if (!existing.group && normalizedEntry.group) existing.group = normalizedEntry.group;
             if (!existing.style && normalizedEntry.style) existing.style = normalizedEntry.style;
+            if (existing.baseColor === '#888888' && normalizedEntry.baseColor !== '#888888') existing.baseColor = normalizedEntry.baseColor;
             if (existing.color === '#888888' && normalizedEntry.color !== '#888888') existing.color = normalizedEntry.color;
         }
         return normalized;
@@ -79,13 +83,14 @@
     }
 
     const MODULE_NAME = 'dialogue-colors';
+    const COLOR_SCHEMA_VERSION = 2;
     let characterColors = {};
     let colorHistory = [];
     let historyIndex = -1;
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, autoBrightness: false };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, autoBrightness: false, colorSchemaVersion: COLOR_SCHEMA_VERSION };
     let lastCharKey = null;
     let lastProcessedMessageSignature = '';
     // Phase 6A: Batch selection state
@@ -259,6 +264,7 @@
         tritanopia: [[0, 70, 60], [180, 70, 55], [330, 60, 65], [20, 80, 55], [200, 60, 50], [350, 50, 60], [160, 70, 55], [10, 70, 60]]
     };
     let cachedTheme = null;
+    let cachedThemeBackground = null;
     let cachedIsDark = null;
     let injectDebouncedTimer = null;
 
@@ -309,29 +315,28 @@
             const customs = getCustomPalettes();
             const palette = customs[paletteName];
             if (palette) {
-                const usedColors = Object.values(characterColors).map(c => c.color);
+                const usedColors = Object.values(characterColors).map(c => getBaseColor(c));
                 for (const color of palette) {
-                    if (!usedColors.includes(color)) return color;
+                    const normalizedColor = normalizeHexColor(color);
+                    if (!usedColors.includes(normalizedColor)) return normalizedColor;
                 }
                 const base = palette[Math.floor(Math.random() * palette.length)];
                 const [h, s, l] = hexToHsl(base);
-                return hslToHex((h + Math.random() * 60 - 30 + 360) % 360, s, l + settings.brightness);
+                return hslToHex((h + Math.random() * 60 - 30 + 360) % 360, s, l);
             }
         }
         const theme = COLOR_THEMES[settings.colorTheme] || COLOR_THEMES.pastel;
-        const usedColors = Object.values(characterColors).map(c => c.color);
-        if (cachedIsDark === null) {
-            const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
-            cachedIsDark = mode === 'dark';
-        }
-        const isDark = cachedIsDark;
+        const usedColors = Object.values(characterColors).map(c => getBaseColor(c));
+        const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
+        const isDark = mode === 'dark';
+        cachedIsDark = isDark;
         for (const [h, s, l] of theme) {
             const adjustedL = isDark ? Math.min(l + 15, 85) : Math.max(l - 15, 35);
-            const color = hslToHex(h, s, adjustedL + settings.brightness);
+            const color = hslToHex(h, s, adjustedL);
             if (!usedColors.includes(color)) return color;
         }
         const [h, s, l] = theme[Math.floor(Math.random() * theme.length)];
-        return hslToHex((h + Math.random() * 60 - 30 + 360) % 360, s, (isDark ? 75 : 40) + settings.brightness);
+        return hslToHex((h + Math.random() * 60 - 30 + 360) % 360, s, isDark ? 75 : 40);
     }
 
     // Phase 3B: Optimized conflict check with pre-computed HSL and early-out
@@ -339,7 +344,7 @@
         const colors = Object.entries(characterColors);
         if (colors.length > 50) return [];
         const conflicts = [];
-        const hslCache = colors.map(([, v]) => ({ name: v.name, hsl: hexToHsl(v.color) }));
+        const hslCache = colors.map(([, v]) => ({ name: v.name, hsl: hexToHsl(getEntryEffectiveColor(v)) }));
         for (let i = 0; i < hslCache.length - 1; i++) {
             for (let j = i + 1; j < hslCache.length; j++) {
                 const [h1, , l1] = hslCache[i].hsl;
@@ -364,7 +369,7 @@
     function suggestColorForName(name) {
         const n = name.toLowerCase();
         for (const [colorName, hue] of COLOR_NAME_MAP) {
-            if (n.includes(colorName)) return hslToHex(hue, 70, 50 + settings.brightness);
+            if (n.includes(colorName)) return hslToHex(hue, 70, 50);
         }
         return null;
     }
@@ -376,7 +381,7 @@
 
         for (const [, char] of sortedEntries) {
             if (!char.locked) {
-                char.color = suggestColorForName(char.name) || getNextColor();
+                setEntryFromBaseColor(char, suggestColorForName(char.name) || getNextColor());
             }
         }
         saveHistory(); saveData(); updateCharList(); injectPrompt();
@@ -392,10 +397,10 @@
         conflicts.forEach(([name1, name2]) => {
             const key1 = name1.toLowerCase(), key2 = name2.toLowerCase();
             if (characterColors[key1] && !characterColors[key1].locked) {
-                characterColors[key1].color = getNextColor();
+                setEntryFromBaseColor(characterColors[key1], getNextColor());
                 fixedPairs.push(`${name1} & ${name2} (changed ${name1})`);
             } else if (characterColors[key2] && !characterColors[key2].locked) {
-                characterColors[key2].color = getNextColor();
+                setEntryFromBaseColor(characterColors[key2], getNextColor());
                 fixedPairs.push(`${name1} & ${name2} (changed ${name2})`);
             }
         });
@@ -407,10 +412,10 @@
         const entries = Object.entries(characterColors);
         if (!entries.length) { toastr?.info?.('No characters to flip'); return; }
         for (const [, char] of entries) {
-            const [h, s, l] = hexToHsl(char.color);
+            const [h, s, l] = hexToHsl(getEntryEffectiveColor(char));
             const newL = 100 - l;
             const clampedL = Math.max(25, Math.min(85, newL));
-            char.color = hslToHex(h, s, clampedL);
+            setEntryFromEffectiveColor(char, hslToHex(h, s, clampedL));
         }
         saveHistory(); saveData(); updateCharList(); injectPrompt();
         toastr?.success?.('Colors flipped for theme switch');
@@ -425,7 +430,8 @@
         const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
         presets[name] = Object.entries(characterColors).map(([, v]) => ({
             name: String(v.name ?? '').trim(),
-            color: normalizeHexColor(v.color),
+            color: getEntryEffectiveColor(v),
+            baseColor: getBaseColor(v),
             style: VALID_STYLES.has(v.style) ? v.style : '',
             aliases: normalizeAliases(v.aliases),
             group: String(v.group ?? '').trim(),
@@ -866,7 +872,7 @@
         if (existing) existing.remove();
         const char = characterColors[key];
         if (!char) return;
-        const suggestions = getHarmonySuggestions(char.color);
+        const suggestions = getHarmonySuggestions(getBaseColor(char));
         const popup = document.createElement('div');
         popup.id = 'dc-harmony-popup';
         const rect = anchorEl.getBoundingClientRect();
@@ -880,7 +886,7 @@
             swatch.onmouseenter = () => { swatch.style.borderColor = '#fff'; };
             swatch.onmouseleave = () => { swatch.style.borderColor = 'transparent'; };
             swatch.onclick = () => {
-                char.color = swatch.dataset.color;
+                setEntryFromBaseColor(char, swatch.dataset.color);
                 saveHistory(); saveData(); updateCharList(); injectPrompt();
                 popup.remove();
                 if (settings.autoRecolor) recolorAllMessages();
@@ -906,12 +912,14 @@
     }
 
     function detectTheme() {
-        if (cachedTheme) return cachedTheme;
-        const m = getComputedStyle(document.body).backgroundColor.match(/\d+/g);
-        cachedTheme = m && (parseInt(m[0]) * 299 + parseInt(m[1]) * 587 + parseInt(m[2]) * 114) / 1000 < 128 ? 'dark' : 'light';
+        const background = getComputedStyle(document.body).backgroundColor || '';
+        if (cachedTheme && cachedThemeBackground === background) return cachedTheme;
+        const m = background.match(/\d+/g);
+        cachedTheme = m && m.length >= 3 && (parseInt(m[0]) * 299 + parseInt(m[1]) * 587 + parseInt(m[2]) * 114) / 1000 < 128 ? 'dark' : 'light';
+        cachedThemeBackground = background;
         return cachedTheme;
     }
-    function invalidateThemeCache() { cachedTheme = null; cachedIsDark = null; }
+    function invalidateThemeCache() { cachedTheme = null; cachedThemeBackground = null; cachedIsDark = null; }
 
     function getThemeLightnessBounds() {
         const mode = settings.themeMode === 'auto' ? detectTheme() : settings.themeMode;
@@ -928,6 +936,46 @@
         const { minLightness, maxLightness } = getThemeLightnessBounds();
         const adjustedL = Math.max(minLightness, Math.min(maxLightness, l + offset));
         return hslToHex(h, s, adjustedL);
+    }
+
+    function deriveBaseColorFromEffectiveColor(hexColor) {
+        const normalized = normalizeHexColor(hexColor);
+        const [h, s, l] = hexToHsl(normalized);
+        const brightness = Number(settings.brightness);
+        const offset = Number.isFinite(brightness) ? Math.max(-100, Math.min(100, brightness)) : 0;
+        const baseL = Math.max(0, Math.min(100, l - offset));
+        return hslToHex(h, s, baseL);
+    }
+
+    function getBaseColor(entry, fallback = '#888888') {
+        const colorFallback = normalizeHexColor(entry?.color, fallback);
+        return normalizeHexColor(entry?.baseColor, colorFallback);
+    }
+
+    function getEntryEffectiveColor(entry) {
+        return applyThemeReadabilityAndBrightness(getBaseColor(entry));
+    }
+
+    function setEntryFromBaseColor(entry, baseColor) {
+        if (!entry) return '#888888';
+        entry.baseColor = normalizeHexColor(baseColor, getBaseColor(entry));
+        entry.color = getEntryEffectiveColor(entry);
+        return entry.color;
+    }
+
+    function setEntryFromEffectiveColor(entry, effectiveColor) {
+        if (!entry) return '#888888';
+        const normalizedEffective = normalizeHexColor(effectiveColor, entry.color);
+        entry.baseColor = deriveBaseColorFromEffectiveColor(normalizedEffective);
+        entry.color = getEntryEffectiveColor(entry);
+        return entry.color;
+    }
+
+    function syncAllEffectiveColors() {
+        for (const entry of Object.values(characterColors)) {
+            if (!entry) continue;
+            setEntryFromBaseColor(entry, getBaseColor(entry));
+        }
     }
 
     // Phase 2B: Prefer characterId over avatar, use ?? for 0-safety
@@ -989,7 +1037,7 @@
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         entries.forEach(([, v], i) => {
             const y = padding + i * lineHeight + lineHeight / 2;
-            const safeColor = normalizeHexColor(v.color);
+            const safeColor = getEntryEffectiveColor(v);
             ctx.beginPath();
             ctx.arc(padding + dotSize / 2, y, dotSize / 2, 0, Math.PI * 2);
             ctx.fillStyle = safeColor;
@@ -1040,13 +1088,14 @@
                 const nameInput = menu.querySelector('#dc-ctx-name');
                 const colorInput = menu.querySelector('#dc-ctx-color');
                 const name = nameInput.value.trim();
-                const newColor = colorInput.value;
+                const newColor = normalizeHexColor(colorInput.value, color);
                 if (name) {
                     const key = name.toLowerCase();
                     if (characterColors[key]) {
-                        characterColors[key].color = newColor;
+                        setEntryFromEffectiveColor(characterColors[key], newColor);
                     } else {
-                        characterColors[key] = { color: newColor, name, locked: false, aliases: [], style: '', dialogueCount: 1, group: '' };
+                        const baseColor = deriveBaseColorFromEffectiveColor(newColor);
+                        characterColors[key] = { color: applyThemeReadabilityAndBrightness(baseColor), baseColor, name, locked: false, aliases: [], style: '', dialogueCount: 1, group: '' };
                     }
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
                     toastr?.success?.(`Assigned to ${name}`);
@@ -1080,6 +1129,8 @@
 
     function saveData() {
         characterColors = normalizeCharacterColors(characterColors);
+        settings.colorSchemaVersion = COLOR_SCHEMA_VERSION;
+        syncAllEffectiveColors();
         localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
         localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness }));
     }
@@ -1093,6 +1144,33 @@
         if (g.brightness !== undefined) settings.brightness = g.brightness;
     }
 
+    function migrateColorSchemaIfNeeded() {
+        const currentVersion = Number(settings.colorSchemaVersion);
+        const needsMigration = !Number.isFinite(currentVersion) || currentVersion < COLOR_SCHEMA_VERSION;
+        let changed = false;
+        for (const entry of Object.values(characterColors)) {
+            if (!entry) continue;
+            if (needsMigration) {
+                entry.baseColor = deriveBaseColorFromEffectiveColor(entry.color);
+                changed = true;
+            } else {
+                const normalizedBase = getBaseColor(entry);
+                if (normalizeHexColor(entry.baseColor, '') !== normalizedBase) {
+                    entry.baseColor = normalizedBase;
+                    changed = true;
+                }
+            }
+            const effective = getEntryEffectiveColor(entry);
+            if (normalizeHexColor(entry.color) !== effective) changed = true;
+            entry.color = effective;
+        }
+        if (settings.colorSchemaVersion !== COLOR_SCHEMA_VERSION) {
+            settings.colorSchemaVersion = COLOR_SCHEMA_VERSION;
+            changed = true;
+        }
+        return changed;
+    }
+
     // Phase 2B: Legacy key fallback in loadData
     function loadData() {
         characterColors = {};
@@ -1104,7 +1182,12 @@
         try {
             const d = JSON.parse(localStorage.getItem(primaryKey));
             if (d?.colors) { characterColors = normalizeCharacterColors(d.colors); loaded = true; }
-            if (d?.settings) Object.assign(settings, d.settings);
+            if (d?.settings) {
+                Object.assign(settings, d.settings);
+                if (d.settings.colorSchemaVersion === undefined) settings.colorSchemaVersion = 0;
+            } else if (d?.colors) {
+                settings.colorSchemaVersion = 0;
+            }
         } catch { }
         if (!loaded) {
             const legacyKey = getLegacyStorageKey();
@@ -1112,11 +1195,19 @@
                 try {
                     const d = JSON.parse(localStorage.getItem(legacyKey));
                     if (d?.colors) { characterColors = normalizeCharacterColors(d.colors); loaded = true; }
-                    if (d?.settings) Object.assign(settings, d.settings);
+                    if (d?.settings) {
+                        Object.assign(settings, d.settings);
+                        if (d.settings.colorSchemaVersion === undefined) settings.colorSchemaVersion = 0;
+                    } else if (d?.colors) {
+                        settings.colorSchemaVersion = 0;
+                    }
                 } catch { }
             }
         }
         applyGlobal(g);
+        if (migrateColorSchemaIfNeeded()) {
+            saveData();
+        }
         colorHistory = [JSON.stringify(characterColors)]; historyIndex = 0;
         lastProcessedMessageSignature = '';
     }
@@ -1132,7 +1223,13 @@
             try {
                 const d = JSON.parse(e.target.result);
                 if (d.colors) characterColors = normalizeCharacterColors(d.colors);
-                if (d.settings) Object.assign(settings, d.settings);
+                if (d.settings) {
+                    Object.assign(settings, d.settings);
+                    if (d.settings.colorSchemaVersion === undefined) settings.colorSchemaVersion = 0;
+                } else if (d.colors) {
+                    settings.colorSchemaVersion = 0;
+                }
+                migrateColorSchemaIfNeeded();
                 saveHistory(); saveData(); updateCharList(); injectPrompt();
                 toastr?.success?.('Imported!');
             } catch {
@@ -1239,7 +1336,7 @@
         const { mode, minLightness, maxLightness } = getThemeLightnessBounds();
         const colorList = Object.entries(characterColors)
             .filter(([, v]) => v.locked && v.color)
-            .map(([, v]) => `${v.name}=${normalizeHexColor(v.color)}${v.style ? ` (${v.style})` : ''}`)
+            .map(([, v]) => `${v.name}=${getEntryEffectiveColor(v)}${v.style ? ` (${v.style})` : ''}`)
             .join(', ');
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
         const parts = [
@@ -1258,7 +1355,7 @@
         }
         if (colorList) parts.push(`Keep: ${colorList}.`);
         if (aliases) parts.push(`Aliases: ${aliases}.`);
-        if (!settings.disableNarration && settings.narratorColor) parts.push(`Narrator: ${settings.narratorColor}.`);
+        if (!settings.disableNarration && settings.narratorColor) parts.push(`Narrator: ${applyThemeReadabilityAndBrightness(settings.narratorColor)}.`);
         if (settings.thoughtSymbols) parts.push(`Inner thoughts in ${settings.thoughtSymbols} must use <font color=...> with the speaker's color.`);
         if (settings.highlightMode) parts.push('Add background highlight.');
         if (settings.cssEffects) parts.push(`For intense emotion/magic/distortion, use CSS transforms: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase. Wrap in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.`);
@@ -1288,7 +1385,7 @@
         if (!settings.enabled) return '<span style="opacity:0.5">(disabled)</span>';
         const entries = Object.entries(characterColors);
         if (!entries.length) return '<span style="opacity:0.5">(no characters)</span>';
-        return entries.map(([, v]) => `<span style="color:${normalizeHexColor(v.color)}">${escapeHtml(v.name)}</span>`).join(', ');
+        return entries.map(([, v]) => `<span style="color:${getEntryEffectiveColor(v)}">${escapeHtml(v.name)}</span>`).join(', ');
     }
 
     function injectPrompt() {
@@ -1383,7 +1480,7 @@
         if (!entries.length || !settings.showLegend) { legend.style.display = 'none'; return; }
         legend.innerHTML = '<div style="font-weight:bold;margin-bottom:4px;cursor:grab;">⋮⋮ Characters</div>' +
             entries.map(([, v]) => {
-                const safeColor = normalizeHexColor(v.color);
+                const safeColor = getEntryEffectiveColor(v);
                 return `<div style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:${safeColor};"></span><span style="color:${safeColor}">${escapeHtml(v.name)}</span><span style="opacity:0.5;font-size:0.8em;">${v.dialogueCount || 0}</span></div>`;
             }).join('');
         legend.style.display = settings.showLegend ? 'block' : 'none';
@@ -1392,7 +1489,7 @@
     function getDialogueStats() {
         const entries = Object.entries(characterColors);
         const total = entries.reduce((s, [, v]) => s + (v.dialogueCount || 0), 0);
-        return entries.map(([, v]) => ({ name: v.name, count: v.dialogueCount || 0, pct: total ? Math.round((v.dialogueCount || 0) / total * 100) : 0, color: normalizeHexColor(v.color) })).sort((a, b) => b.count - a.count);
+        return entries.map(([, v]) => ({ name: v.name, count: v.dialogueCount || 0, pct: total ? Math.round((v.dialogueCount || 0) / total * 100) : 0, color: getEntryEffectiveColor(v) })).sort((a, b) => b.count - a.count);
     }
 
     function showStatsPopup() {
@@ -1434,7 +1531,13 @@
                 const data = char?.data?.extensions?.dialogueColors;
                 if (data?.colors) {
                     characterColors = normalizeCharacterColors(data.colors);
-                    if (data.settings) Object.assign(settings, data.settings);
+                    if (data.settings) {
+                        Object.assign(settings, data.settings);
+                        if (data.settings.colorSchemaVersion === undefined) settings.colorSchemaVersion = 0;
+                    } else {
+                        settings.colorSchemaVersion = 0;
+                    }
+                    migrateColorSchemaIfNeeded();
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
                     toastr?.success?.('Loaded from card');
                 } else {
@@ -1451,7 +1554,13 @@
             const data = char?.data?.extensions?.dialogueColors;
             if (data?.colors) {
                 characterColors = normalizeCharacterColors(data.colors);
-                if (data.settings) Object.assign(settings, data.settings);
+                if (data.settings) {
+                    Object.assign(settings, data.settings);
+                    if (data.settings.colorSchemaVersion === undefined) settings.colorSchemaVersion = 0;
+                } else {
+                    settings.colorSchemaVersion = 0;
+                }
+                migrateColorSchemaIfNeeded();
                 saveHistory(); saveData();
             }
         } catch { }
@@ -1477,13 +1586,19 @@
             const { name, nicknames } = parseNameWithNicknames(rawName);
             const rawColor = pair.substring(eqIdx + 1).trim();
             if (!name || !rawColor || !/^#[a-fA-F0-9]{6}$/i.test(rawColor)) continue;
-            const color = applyThemeReadabilityAndBrightness(rawColor);
+            const baseColor = normalizeHexColor(rawColor);
+            const color = applyThemeReadabilityAndBrightness(baseColor);
             const key = name.toLowerCase();
             if (characterColors[key]) {
                 characterColors[key].dialogueCount = (characterColors[key].dialogueCount || 0) + 1;
-                if (!characterColors[key].locked) characterColors[key].color = color;
+                if (!characterColors[key].locked) {
+                    characterColors[key].baseColor = baseColor;
+                    characterColors[key].color = color;
+                } else {
+                    characterColors[key].baseColor = getBaseColor(characterColors[key]);
+                }
             } else {
-                characterColors[key] = { color, name, locked: settings.autoLockDetected !== false, aliases: [], style: '', dialogueCount: 1, group: '' };
+                characterColors[key] = { color, baseColor, name, locked: settings.autoLockDetected !== false, aliases: [], style: '', dialogueCount: 1, group: '' };
                 foundNew = true;
             }
             if (nicknames.length) {
@@ -1556,7 +1671,8 @@
         if (!chat.length) { toastr?.info?.('No messages to recolor.'); return; }
 
         const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
-        const fontTagRegex = /<font\s+color\s*=\s*["']?(#[0-9a-fA-F]{6})["']?\s*>/gi;
+        const fontTagRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?[^>]*>/gi;
+        syncAllEffectiveColors();
 
         // Step 1: Build global reverse map (oldColor → characterName) from all [COLORS:] blocks.
         // Later messages overwrite earlier so the most-recent assignment wins.
@@ -1580,7 +1696,7 @@
         // Step 2: Build current name → newColor lookup from characterColors (including aliases).
         const nameToNewColor = {};
         for (const entry of Object.values(characterColors)) {
-            const adjusted = applyThemeReadabilityAndBrightness(entry.color);
+            const adjusted = normalizeHexColor(entry.color);
             nameToNewColor[entry.name.toLowerCase()] = adjusted;
             for (const alias of (entry.aliases || [])) {
                 nameToNewColor[alias.toLowerCase()] = adjusted;
@@ -1634,7 +1750,7 @@
             let updated = rawText.replace(fontTagRegex, (match, oldHex) => {
                 const key = oldHex.toLowerCase();
                 if (replacements[key]) {
-                    return match.replace(oldHex, replacements[key]);
+                    return match.replace(/(\bcolor\s*=\s*["']?)(#[0-9a-fA-F]{6})(["']?)/i, `$1${replacements[key]}$3`);
                 }
                 return match;
             });
@@ -1709,15 +1825,16 @@
     function addCharacter(name, color) {
         if (!name.trim()) return;
         const key = name.trim().toLowerCase();
-        const suggested = normalizeHexColor(color, suggestColorForName(name) || getNextColor());
-        characterColors[key] = { color: suggested, name: name.trim(), locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
+        const baseColor = normalizeHexColor(color, suggestColorForName(name) || getNextColor());
+        characterColors[key] = { color: applyThemeReadabilityAndBrightness(baseColor), baseColor, name: name.trim(), locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
         saveHistory(); saveData(); updateCharList(); injectPrompt();
     }
 
     function swapColors(key1, key2) {
-        const tmp = characterColors[key1].color;
-        characterColors[key1].color = characterColors[key2].color;
-        characterColors[key2].color = tmp;
+        const color1 = getBaseColor(characterColors[key1]);
+        const color2 = getBaseColor(characterColors[key2]);
+        setEntryFromBaseColor(characterColors[key1], color2);
+        setEntryFromBaseColor(characterColors[key2], color1);
         saveHistory(); saveData(); updateCharList(); injectPrompt();
     }
 
@@ -1731,7 +1848,8 @@
         let lastGroup = null;
         list.innerHTML = entries.length ? entries.map(([k, v]) => {
             const safeKey = escapeAttr(k);
-            const safeColor = normalizeHexColor(v.color);
+            const safeColor = getEntryEffectiveColor(v);
+            const pickerColor = getBaseColor(v, safeColor);
             let groupHeader = '';
             if (sortMode === 'group') {
                 const g = v.group || '(ungrouped)';
@@ -1749,7 +1867,7 @@
                     <input type="checkbox" class="dc-batch-check" data-key="${safeKey}" ${selectedKeys.has(k) ? 'checked' : ''} style="width:10px;height:10px;margin:0;">
                     <span class="dc-color-swatch" style="position:relative;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">
                         <span class="dc-color-dot" style="width:8px;height:8px;border-radius:50%;background:${safeColor};cursor:pointer;"></span>
-                        <input type="color" value="${safeColor}" data-key="${safeKey}" class="dc-color-input" style="width:18px;height:18px;padding:0;border:none;cursor:pointer;">
+                        <input type="color" value="${pickerColor}" data-key="${safeKey}" class="dc-color-input" style="width:18px;height:18px;padding:0;border:none;cursor:pointer;">
                     </span>
                     <span style="flex:1;color:${safeColor};font-size:0.85em;" title="Dialogues: ${v.dialogueCount || 0}${v.aliases?.length ? '\nAliases: ' + escapeHtml(v.aliases.join(', ')) : ''}${v.group ? '\nGroup: ' + escapeHtml(v.group) : ''}">${escapeHtml(v.name)}${v.style ? ` [${v.style[0].toUpperCase()}]` : ''}${getBadge(v.dialogueCount || 0)}</span>
                     <span style="font-size:0.7em;opacity:0.6;">${v.dialogueCount || 0}</span>
@@ -1771,11 +1889,11 @@
             i.oninput = () => {
                 const c = characterColors[i.dataset.key];
                 if (!c) return;
-                const nextColor = normalizeHexColor(i.value, c.color);
-                c.color = nextColor;
+                const nextColor = normalizeHexColor(i.value, getBaseColor(c));
+                setEntryFromBaseColor(c, nextColor);
                 c.aliases?.forEach(a => {
                     const ak = a.toLowerCase();
-                    if (characterColors[ak]) characterColors[ak].color = nextColor;
+                    if (characterColors[ak]) setEntryFromBaseColor(characterColors[ak], nextColor);
                 });
                 saveHistory(); saveData(); injectPrompt(); updateCharList();
             };
@@ -2102,9 +2220,9 @@
         $('dc-share-global').onchange = e => { settings.shareColorsGlobally = e.target.checked; saveData(); loadData(); updateCharList(); injectPrompt(); };
         $('dc-css-effects').onchange = e => { settings.cssEffects = e.target.checked; saveData(); injectPrompt(); };
         $('dc-llm-palette').onchange = e => { settings.llmEnhanceCustomPalettes = e.target.checked; saveData(); };
-        $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); saveData(); injectPrompt(); };
+        $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); if (settings.autoRecolor) recolorAllMessages(); };
         $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
-        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; saveData(); invalidateThemeCache(); injectPrompt(); };
+        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); };
         $('dc-brightness').onchange = () => { if (settings.autoBrightness) recolorAllMessages(); };
         $('dc-narrator').oninput = e => { settings.narratorColor = e.target.value; saveData(); injectPrompt(); };
         $('dc-narrator-clear').onclick = () => { settings.narratorColor = ''; $('dc-narrator').value = '#888888'; saveData(); injectPrompt(); };
@@ -2141,9 +2259,9 @@
                 if (color) {
                     const key = char.name.toLowerCase();
                     if (characterColors[key]) {
-                        characterColors[key].color = color;
+                        setEntryFromBaseColor(characterColors[key], color);
                     } else {
-                        characterColors[key] = { color, name: char.name, locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
+                        characterColors[key] = { color: applyThemeReadabilityAndBrightness(color), baseColor: normalizeHexColor(color), name: char.name, locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
                     }
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
                     toastr?.success?.(`Set ${char.name} to ${color}`);
@@ -2178,7 +2296,7 @@
         $('dc-del-dupes').onclick = () => {
             const colorGroups = {};
             Object.entries(characterColors).forEach(([k, v]) => {
-                const c = v.color.toLowerCase();
+                const c = getEntryEffectiveColor(v).toLowerCase();
                 if (!colorGroups[c]) colorGroups[c] = [];
                 colorGroups[c].push({ key: k, count: v.dialogueCount || 0 });
             });
@@ -2216,7 +2334,7 @@
             if (count) saveHistory();
             saveData(); updateCharList(); toastr?.info?.(`Unlocked ${count} characters`);
         };
-        $('dc-reset').onclick = () => { if (confirm('Reset all colors?')) { Object.values(characterColors).forEach(c => { if (!c.locked) c.color = getNextColor(); }); saveHistory(); saveData(); updateCharList(); injectPrompt(); } };
+        $('dc-reset').onclick = () => { if (confirm('Reset all colors?')) { Object.values(characterColors).forEach(c => { if (!c.locked) setEntryFromBaseColor(c, getNextColor()); }); saveHistory(); saveData(); updateCharList(); injectPrompt(); } };
         $('dc-search').oninput = e => { searchTerm = e.target.value; updateCharList(); };
         $('dc-sort').onchange = e => { sortMode = e.target.value; updateCharList(); };
         $('dc-add-btn').onclick = () => { addCharacter($('dc-add-name').value); $('dc-add-name').value = ''; };
