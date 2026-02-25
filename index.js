@@ -116,80 +116,6 @@
     let autoRecolorHintShown = false;
     let isRecoloring = false;
 
-    const CONTROL_HELP_TEXT = Object.freeze({
-        'dc-enabled': 'Enable or disable Dialogue Colors prompt injection and color formatting.',
-        'dc-highlight': 'Add background highlighting behind colored dialogue text.',
-        'dc-legend': 'Show a draggable floating legend of active character colors.',
-        'dc-css-effects': 'Allow transform-based CSS effects for intense dialogue moments.',
-        'dc-theme': 'Choose Auto, Dark, or Light targeting for generated color readability.',
-        'dc-palette': 'Pick the color palette used for new or regenerated character colors.',
-        'dc-gen-palette': 'Generate a custom palette from the name and notes fields.',
-        'dc-save-palette': 'Save current colors as a reusable custom palette.',
-        'dc-del-palette': 'Delete the currently selected custom palette.',
-        'dc-palette-name-input': 'Name used for inline custom palette create/save actions.',
-        'dc-palette-notes-input': 'Optional notes that guide generated palette style.',
-        'dc-overwrite-existing': 'Allow replacing an existing custom palette with the same name.',
-        'dc-palette-save-inline': 'Save current active colors to the named custom palette.',
-        'dc-palette-generate-inline': 'Generate a custom palette from the name and notes fields.',
-        'dc-brightness': 'Shift effective color lightness up or down. Does not change stored base colors.',
-        'dc-autoscan': 'Automatically scan existing chat messages after chat load.',
-        'dc-autoscan-new': 'Automatically scan newly arriving messages for speakers/colors.',
-        'dc-auto-lock': 'Automatically lock newly detected characters to preserve assignments.',
-        'dc-right-click': 'Enable right-click or long-press assign-color menu on messages.',
-        'dc-disable-narration': 'Skip narrator color assignment in generated prompt instructions.',
-        'dc-share-global': 'Use one shared color table for all chats instead of per-chat storage.',
-        'dc-llm-palette': 'Use LLM assistance to refine generated custom palettes.',
-        'dc-narrator': 'Set narrator fallback color used when narration coloring is enabled.',
-        'dc-narrator-clear': 'Clear custom narrator color and return to default.',
-        'dc-thought-symbols': 'Symbols used to detect and color inner-thought dialogue.',
-        'dc-thought-add': 'Append another thought symbol to the list.',
-        'dc-thought-clear': 'Remove all thought symbols.',
-        'dc-prompt-depth': 'How far from the chat end the system color prompt is injected.',
-        'dc-help-toggle': 'Show or hide the inline help panel explaining each control.',
-        'dc-scan': 'Scan all chat messages for [COLORS:] blocks, extract characters and colors, and reset dialogue counts.',
-        'dc-clear': 'Remove all tracked characters and color assignments.',
-        'dc-stats': 'Open dialogue statistics for currently tracked characters.',
-        'dc-recolor': 'Rewrite font colors in all messages to match current color assignments and reload chat.',
-        'dc-auto-recolor': 'Automatically recolor and reload chat when character colors change.',
-        'dc-auto-brightness': 'Automatically recolor messages when the brightness slider changes.',
-        'dc-undo': 'Undo the last color-table change.',
-        'dc-redo': 'Redo the most recently undone change.',
-        'dc-fix-conflicts': 'Auto-resolve colors that are too visually similar and report which pairs were changed.',
-        'dc-regen': 'Regenerate colors for unlocked characters — tries name-based suggestions first, then falls back to palette.',
-        'dc-flip-theme': 'Invert color lightness to quickly adapt to light/dark theme changes.',
-        'dc-preset-name': 'Preset name used when saving current color assignments.',
-        'dc-save-preset': 'Save current assignments into a named preset.',
-        'dc-preset-select': 'Select a preset to load into or remove from this chat.',
-        'dc-load-preset': 'Load selected preset colors into current character list.',
-        'dc-delete-preset': 'Delete the selected preset from local storage.',
-        'dc-export': 'Export colors and settings to a JSON file.',
-        'dc-import': 'Import colors and settings from a JSON file.',
-        'dc-export-png': 'Export the floating legend as an image.',
-        'dc-card': 'Add current card character to the color list if missing.',
-        'dc-avatar-color': 'Extract the dominant color from the current character avatar and assign it.',
-        'dc-save-card': 'Save this chat color data into character card extensions.',
-        'dc-load-card': 'Load saved color data from character card extensions.',
-        'dc-lock-all': 'Lock every tracked character color.',
-        'dc-unlock-all': 'Unlock every tracked character color.',
-        'dc-reset': 'Reassign random palette colors to all unlocked characters (no name-based suggestions).',
-        'dc-del-locked': 'Delete all locked characters.',
-        'dc-del-unlocked': 'Delete all unlocked characters.',
-        'dc-del-least': 'Delete characters below a dialogue-count threshold.',
-        'dc-del-least-threshold': 'Minimum dialogue count to keep when using DelLeast.',
-        'dc-del-dupes': 'Delete duplicate-color characters, keeping highest dialogue count.',
-        'dc-search': 'Filter characters by name.',
-        'dc-sort': 'Sort character list by name, dialogue count, or group.',
-        'dc-add-name': 'Type a new character name to add manually.',
-        'dc-add-btn': 'Add typed character with a suggested color.',
-        'dc-batch-all': 'Select all characters for batch operations.',
-        'dc-batch-none': 'Clear all current character selections.',
-        'dc-batch-del': 'Delete selected characters.',
-        'dc-batch-lock': 'Lock selected characters.',
-        'dc-batch-unlock': 'Unlock selected characters.',
-        'dc-batch-style-select': 'Style to apply to selected characters.',
-        'dc-batch-style-apply': 'Apply the selected style to all selected characters.'
-    });
-
     const DYNAMIC_CONTROL_HELP_TEXT = Object.freeze({
         '.dc-batch-check': 'Select this character row for batch actions.',
         '.dc-color-dot': 'Click to open the color picker for this character.',
@@ -230,7 +156,9 @@
                 { label: 'Disable narration', key: 'dc-disable-narration' },
                 { label: 'Share global', key: 'dc-share-global' },
                 { label: 'LLM palette', key: 'dc-llm-palette' },
-                { label: 'Narr / Think / Depth', key: 'dc-narrator' }
+                { label: 'Narrator color', key: 'dc-narrator' },
+                { label: 'Thought symbols', key: 'dc-thought-symbols' },
+                { label: 'Injection depth', key: 'dc-prompt-depth' }
             ]
         },
         {
@@ -2149,19 +2077,16 @@
     }
 
     function applyControlHelpText(root = document) {
-        for (const [id, text] of Object.entries(CONTROL_HELP_TEXT)) {
-            const element = document.getElementById(id);
-            if (element) setControlHelp(element, text);
-        }
+        root.querySelectorAll('[data-help]').forEach(el => setControlHelp(el, el.dataset.help));
         const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
         for (const [selector, text] of Object.entries(DYNAMIC_CONTROL_HELP_TEXT)) {
-            scope.querySelectorAll(selector).forEach(element => setControlHelp(element, text));
+            scope.querySelectorAll(selector).forEach(el => setControlHelp(el, text));
         }
     }
 
     function getHelpTextByItem(item) {
         if (item.text) return item.text;
-        if (item.key) return CONTROL_HELP_TEXT[item.key] || '';
+        if (item.key) return document.getElementById(item.key)?.dataset?.help || '';
         return '';
     }
 
@@ -2238,80 +2163,80 @@
                 <details class="dc-section" open>
                     <summary style="cursor:pointer;font-weight:bold;margin-bottom:4px;">Display</summary>
                     <div style="display:flex;flex-direction:column;gap:4px;padding-left:4px;">
-                        <label class="checkbox_label"><input type="checkbox" id="dc-help-toggle"><span>Show control help panel</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-help-toggle" data-help="Show or hide the inline help panel explaining each control."><span>Show control help panel</span></label>
                         <div id="dc-help-panel" class="dc-help-panel" style="display:none;"></div>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-enabled"><span>Enable</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-highlight"><span>Highlight mode</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-legend"><span>Show floating legend</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-css-effects"><span>CSS effects (emotion/magic transforms)</span></label>
-                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Theme:</label><select id="dc-theme" class="text_pole" style="flex:1;"><option value="auto">Auto</option><option value="dark">Dark</option><option value="light">Light</option></select></div>
-                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Palette:</label><select id="dc-palette" class="text_pole" style="flex:1;"></select><button id="dc-gen-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Generate custom palette from words">Gen</button><button id="dc-save-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Save current colors as custom palette">+</button><button id="dc-del-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Delete custom palette">&minus;</button></div>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-enabled" data-help="Enable or disable Dialogue Colors prompt injection and color formatting."><span>Enable</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-highlight" data-help="Add background highlighting behind colored dialogue text."><span>Highlight mode</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-legend" data-help="Show a draggable floating legend of active character colors."><span>Show floating legend</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-css-effects" data-help="Allow transform-based CSS effects for intense dialogue moments."><span>CSS effects (emotion/magic transforms)</span></label>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Theme:</label><select id="dc-theme" class="text_pole" style="flex:1;" data-help="Choose Auto, Dark, or Light targeting for generated color readability."><option value="auto">Auto</option><option value="dark">Dark</option><option value="light">Light</option></select></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Palette:</label><select id="dc-palette" class="text_pole" style="flex:1;" data-help="Pick the color palette used for new or regenerated character colors."></select><button id="dc-gen-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Generate custom palette from words" data-help="Generate a custom palette from the name and notes fields.">Gen</button><button id="dc-save-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Save current colors as custom palette" data-help="Save current colors as a reusable custom palette.">+</button><button id="dc-del-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Delete custom palette" data-help="Delete the currently selected custom palette.">&minus;</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
-                            <input type="text" id="dc-palette-name-input" placeholder="Palette name..." class="text_pole" style="flex:1;min-width:110px;padding:3px;">
-                            <input type="text" id="dc-palette-notes-input" placeholder="Palette notes (optional)" class="text_pole" style="flex:1;min-width:140px;padding:3px;">
-                            <button id="dc-palette-save-inline" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Save current colors to named custom palette">Save</button>
-                            <button id="dc-palette-generate-inline" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Generate custom palette from name and notes">Generate</button>
+                            <input type="text" id="dc-palette-name-input" placeholder="Palette name..." class="text_pole" style="flex:1;min-width:110px;padding:3px;" data-help="Name used for inline custom palette create/save actions.">
+                            <input type="text" id="dc-palette-notes-input" placeholder="Palette notes (optional)" class="text_pole" style="flex:1;min-width:140px;padding:3px;" data-help="Optional notes that guide generated palette style.">
+                            <button id="dc-palette-save-inline" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Save current colors to named custom palette" data-help="Save current active colors to the named custom palette.">Save</button>
+                            <button id="dc-palette-generate-inline" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Generate custom palette from name and notes" data-help="Generate a custom palette from the name and notes fields.">Generate</button>
                         </div>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-overwrite-existing"><span>Overwrite existing custom palette</span></label>
-                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Bright:</label><input type="range" id="dc-brightness" min="-100" max="100" value="0" style="flex:1;"><span id="dc-bright-val">0</span></div>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-brightness"><span>Auto-brightness on change</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-overwrite-existing" data-help="Allow replacing an existing custom palette with the same name."><span>Overwrite existing custom palette</span></label>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Bright:</label><input type="range" id="dc-brightness" min="-100" max="100" value="0" style="flex:1;" data-help="Shift effective color lightness up or down. Does not change stored base colors."><span id="dc-bright-val">0</span></div>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-brightness" data-help="Automatically recolor messages when the brightness slider changes."><span>Auto-brightness on change</span></label>
                     </div>
                 </details>
                 <details class="dc-section">
                     <summary style="cursor:pointer;font-weight:bold;margin-bottom:4px;">Behavior</summary>
                     <div style="display:flex;flex-direction:column;gap:4px;padding-left:4px;">
-                        <label class="checkbox_label"><input type="checkbox" id="dc-autoscan"><span>Auto-scan on chat load</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-autoscan-new"><span>Auto-scan new messages</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-lock"><span>Auto-lock detected characters</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-recolor"><span>Auto-recolor on change</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-right-click"><span>Enable right-click context menu</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-disable-narration"><span>Disable narration coloring</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-share-global"><span>Share colors across all chats</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-llm-palette"><span>Enhance generated palettes with LLM</span></label>
-                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;"><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
-                        <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;"><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Clear</button></div>
-                        <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;"></div>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-autoscan" data-help="Automatically scan existing chat messages after chat load."><span>Auto-scan on chat load</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-autoscan-new" data-help="Automatically scan newly arriving messages for speakers/colors."><span>Auto-scan new messages</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-lock" data-help="Automatically lock newly detected characters to preserve assignments."><span>Auto-lock detected characters</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-recolor" data-help="Automatically recolor and reload chat when character colors change."><span>Auto-recolor on change</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-right-click" data-help="Enable right-click or long-press assign-color menu on messages."><span>Enable right-click context menu</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-disable-narration" data-help="Skip narrator color assignment in generated prompt instructions."><span>Disable narration coloring</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-share-global" data-help="Use one shared color table for all chats instead of per-chat storage."><span>Share colors across all chats</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-llm-palette" data-help="Use LLM assistance to refine generated custom palettes."><span>Enhance generated palettes with LLM</span></label>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;" data-help="Set narrator fallback color used when narration coloring is enabled."><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Clear custom narrator color and return to default.">Clear</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;" data-help="Symbols used to detect and color inner-thought dialogue."><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Append another thought symbol to the list.">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Remove all thought symbols.">Clear</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;" data-help="How far from the chat end the system color prompt is injected."></div>
                     </div>
                 </details>
                 <details class="dc-section">
                     <summary style="cursor:pointer;font-weight:bold;margin-bottom:4px;">Actions</summary>
                     <div style="display:flex;flex-direction:column;gap:4px;padding-left:4px;">
-                        <div style="display:flex;gap:4px;"><button id="dc-scan" class="menu_button" style="flex:1;">Scan</button><button id="dc-clear" class="menu_button" style="flex:1;">Clear</button><button id="dc-stats" class="menu_button" style="flex:1;" title="Dialogue statistics">Stats</button></div>
-                        <div style="display:flex;gap:4px;"><button id="dc-recolor" class="menu_button" style="flex:1;" title="Recolor all messages with current color assignments">Recolor</button></div>
-                        <div style="display:flex;gap:4px;"><button id="dc-undo" class="menu_button" style="flex:1;">&#8630;</button><button id="dc-redo" class="menu_button" style="flex:1;">&#8631;</button><button id="dc-fix-conflicts" class="menu_button" style="flex:1;" title="Auto-fix color conflicts">Fix</button></div>
-                        <div style="display:flex;gap:4px;"><button id="dc-regen" class="menu_button" style="flex:1;" title="Regenerate all colors">Regen</button><button id="dc-flip-theme" class="menu_button" style="flex:1;" title="Flip colors for Dark/Light theme switch">&#9728;/&#127769;</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-scan" class="menu_button" style="flex:1;" data-help="Scan all chat messages for [COLORS:] blocks, extract characters and colors, and reset dialogue counts.">Scan</button><button id="dc-clear" class="menu_button" style="flex:1;" data-help="Remove all tracked characters and color assignments.">Clear</button><button id="dc-stats" class="menu_button" style="flex:1;" title="Dialogue statistics" data-help="Open dialogue statistics for currently tracked characters.">Stats</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-recolor" class="menu_button" style="flex:1;" title="Recolor all messages with current color assignments" data-help="Rewrite font colors in all messages to match current color assignments and reload chat.">Recolor</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-undo" class="menu_button" style="flex:1;" data-help="Undo the last color-table change.">&#8630;</button><button id="dc-redo" class="menu_button" style="flex:1;" data-help="Redo the most recently undone change.">&#8631;</button><button id="dc-fix-conflicts" class="menu_button" style="flex:1;" title="Auto-fix color conflicts" data-help="Auto-resolve colors that are too visually similar and report which pairs were changed.">Fix</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-regen" class="menu_button" style="flex:1;" title="Regenerate all colors" data-help="Regenerate colors for unlocked characters — tries name-based suggestions first, then falls back to palette.">Regen</button><button id="dc-flip-theme" class="menu_button" style="flex:1;" title="Flip colors for Dark/Light theme switch" data-help="Invert color lightness to quickly adapt to light/dark theme changes.">&#9728;/&#127769;</button></div>
                         <hr style="margin:4px 0;opacity:0.15;">
-                        <div style="display:flex;gap:4px;align-items:center;"><input type="text" id="dc-preset-name" placeholder="Preset name..." class="text_pole" style="flex:1;padding:3px;"><button id="dc-save-preset" class="menu_button" style="padding:3px 8px;" title="Save preset">Save</button></div>
-                        <div style="display:flex;gap:4px;align-items:center;"><select id="dc-preset-select" class="text_pole" style="flex:1;"><option value="">-- Select Preset --</option></select><button id="dc-load-preset" class="menu_button" style="padding:3px 8px;" title="Load preset">Load</button><button id="dc-delete-preset" class="menu_button" style="padding:3px 8px;" title="Delete preset">Del</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><input type="text" id="dc-preset-name" placeholder="Preset name..." class="text_pole" style="flex:1;padding:3px;" data-help="Preset name used when saving current color assignments."><button id="dc-save-preset" class="menu_button" style="padding:3px 8px;" title="Save preset" data-help="Save current assignments into a named preset.">Save</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><select id="dc-preset-select" class="text_pole" style="flex:1;" data-help="Select a preset to load into or remove from this chat."><option value="">-- Select Preset --</option></select><button id="dc-load-preset" class="menu_button" style="padding:3px 8px;" title="Load preset" data-help="Load selected preset colors into current character list.">Load</button><button id="dc-delete-preset" class="menu_button" style="padding:3px 8px;" title="Delete preset" data-help="Delete the selected preset from local storage.">Del</button></div>
                         <hr style="margin:4px 0;opacity:0.15;">
-                        <div style="display:flex;gap:4px;"><button id="dc-export" class="menu_button" style="flex:1;">Export</button><button id="dc-import" class="menu_button" style="flex:1;">Import</button><button id="dc-export-png" class="menu_button" style="flex:1;" title="Export legend as image">PNG</button></div>
-                        <div style="display:flex;gap:4px;"><button id="dc-card" class="menu_button" style="flex:1;" title="Add from card">+Card</button><button id="dc-avatar-color" class="menu_button" style="flex:1;" title="Suggest color from avatar">Avatar</button><button id="dc-save-card" class="menu_button" style="flex:1;" title="Save to card">Save&rarr;Card</button><button id="dc-load-card" class="menu_button" style="flex:1;" title="Load from card">Card&rarr;Load</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-export" class="menu_button" style="flex:1;" data-help="Export colors and settings to a JSON file.">Export</button><button id="dc-import" class="menu_button" style="flex:1;" data-help="Import colors and settings from a JSON file.">Import</button><button id="dc-export-png" class="menu_button" style="flex:1;" title="Export legend as image" data-help="Export the floating legend as an image.">PNG</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-card" class="menu_button" style="flex:1;" title="Add from card" data-help="Add current card character to the color list if missing.">+Card</button><button id="dc-avatar-color" class="menu_button" style="flex:1;" title="Suggest color from avatar" data-help="Extract the dominant color from the current character avatar and assign it.">Avatar</button><button id="dc-save-card" class="menu_button" style="flex:1;" title="Save to card" data-help="Save this chat color data into character card extensions.">Save&rarr;Card</button><button id="dc-load-card" class="menu_button" style="flex:1;" title="Load from card" data-help="Load saved color data from character card extensions.">Card&rarr;Load</button></div>
                         <hr style="margin:4px 0;opacity:0.15;">
-                        <div style="display:flex;gap:4px;"><button id="dc-lock-all" class="menu_button" style="flex:1;" title="Lock all characters">🔒All</button><button id="dc-unlock-all" class="menu_button" style="flex:1;" title="Unlock all characters">🔓All</button><button id="dc-reset" class="menu_button" style="flex:1;" title="Reset to default colors">Reset</button></div>
-                        <div style="display:flex;gap:4px;align-items:center;"><button id="dc-del-locked" class="menu_button" style="flex:1;" title="Delete all locked characters">DelLocked</button><button id="dc-del-unlocked" class="menu_button" style="flex:1;" title="Delete all unlocked characters">DelUnlocked</button><button id="dc-del-least" class="menu_button" style="flex:1;" title="Delete characters below dialogue threshold">DelLeast</button><input type="number" id="dc-del-least-threshold" min="0" value="3" class="text_pole" style="width:52px;padding:2px 4px;" title="Minimum dialogues to keep"></div>
-                        <div style="display:flex;gap:4px;"><button id="dc-del-dupes" class="menu_button" style="flex:1;" title="Delete duplicate colors, keep highest dialogue count">DelDupes</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-lock-all" class="menu_button" style="flex:1;" title="Lock all characters" data-help="Lock every tracked character color.">🔒All</button><button id="dc-unlock-all" class="menu_button" style="flex:1;" title="Unlock all characters" data-help="Unlock every tracked character color.">🔓All</button><button id="dc-reset" class="menu_button" style="flex:1;" title="Reset to default colors" data-help="Reassign random palette colors to all unlocked characters (no name-based suggestions).">Reset</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><button id="dc-del-locked" class="menu_button" style="flex:1;" title="Delete all locked characters" data-help="Delete all locked characters.">DelLocked</button><button id="dc-del-unlocked" class="menu_button" style="flex:1;" title="Delete all unlocked characters" data-help="Delete all unlocked characters.">DelUnlocked</button><button id="dc-del-least" class="menu_button" style="flex:1;" title="Delete characters below dialogue threshold" data-help="Delete characters below a dialogue-count threshold.">DelLeast</button><input type="number" id="dc-del-least-threshold" min="0" value="3" class="text_pole" style="width:52px;padding:2px 4px;" title="Minimum dialogues to keep" data-help="Minimum dialogue count to keep when using DelLeast."></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-del-dupes" class="menu_button" style="flex:1;" title="Delete duplicate colors, keep highest dialogue count" data-help="Delete duplicate-color characters, keeping highest dialogue count.">DelDupes</button></div>
                         <input type="file" id="dc-import-file" accept=".json" style="display:none;">
                     </div>
                 </details>
                 <details class="dc-section" open>
                     <summary style="cursor:pointer;font-weight:bold;margin-bottom:4px;">Characters</summary>
                     <div style="display:flex;flex-direction:column;gap:4px;padding-left:4px;">
-                        <div style="display:flex;gap:4px;"><input type="text" id="dc-search" placeholder="Search characters..." class="text_pole" style="flex:1;padding:3px;"></div>
-                        <div style="display:flex;gap:4px;align-items:center;"><label>Sort:</label><select id="dc-sort" class="text_pole" style="flex:1;"><option value="name">Name</option><option value="count">Dialogue Count</option><option value="group">Group</option></select></div>
-                        <div style="display:flex;gap:4px;"><input type="text" id="dc-add-name" placeholder="Add character..." class="text_pole" style="flex:1;padding:3px;"><button id="dc-add-btn" class="menu_button" style="padding:3px 8px;">+</button></div>
+                        <div style="display:flex;gap:4px;"><input type="text" id="dc-search" placeholder="Search characters..." class="text_pole" style="flex:1;padding:3px;" data-help="Filter characters by name."></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><label>Sort:</label><select id="dc-sort" class="text_pole" style="flex:1;" data-help="Sort character list by name, dialogue count, or group."><option value="name">Name</option><option value="count">Dialogue Count</option><option value="group">Group</option></select></div>
+                        <div style="display:flex;gap:4px;"><input type="text" id="dc-add-name" placeholder="Add character..." class="text_pole" style="flex:1;padding:3px;" data-help="Type a new character name to add manually."><button id="dc-add-btn" class="menu_button" style="padding:3px 8px;" data-help="Add typed character with a suggested color.">+</button></div>
                         <div id="dc-batch-bar" style="display:none;gap:4px;flex-wrap:wrap;padding:4px;background:var(--SmartThemeBlurTintColor);border-radius:4px;">
-                            <button id="dc-batch-all" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Select All</button>
-                            <button id="dc-batch-none" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Deselect All</button>
-                            <button id="dc-batch-del" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Delete</button>
-                            <button id="dc-batch-lock" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Lock</button>
-                            <button id="dc-batch-unlock" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Unlock</button>
-                            <select id="dc-batch-style-select" class="text_pole" style="padding:1px 4px;font-size:0.8em;min-width:92px;">
+                            <button id="dc-batch-all" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Select all characters for batch operations.">Select All</button>
+                            <button id="dc-batch-none" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Clear all current character selections.">Deselect All</button>
+                            <button id="dc-batch-del" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Delete selected characters.">Delete</button>
+                            <button id="dc-batch-lock" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Lock selected characters.">Lock</button>
+                            <button id="dc-batch-unlock" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Unlock selected characters.">Unlock</button>
+                            <select id="dc-batch-style-select" class="text_pole" style="padding:1px 4px;font-size:0.8em;min-width:92px;" data-help="Style to apply to selected characters.">
                                 <option value="">Style: none</option>
                                 <option value="bold">Style: bold</option>
                                 <option value="italic">Style: italic</option>
                                 <option value="bold italic">Style: bold italic</option>
                             </select>
-                            <button id="dc-batch-style-apply" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Apply Style</button>
+                            <button id="dc-batch-style-apply" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Apply the selected style to all selected characters.">Apply Style</button>
                         </div>
                         <small>Characters: <span id="dc-count">0</span> (⭐=50+, 💎=100+)</small>
                         <div id="dc-char-list" style="max-height:300px;overflow-y:auto;"></div>
