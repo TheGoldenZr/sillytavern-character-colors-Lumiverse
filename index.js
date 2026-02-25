@@ -1334,15 +1334,19 @@
     function buildPromptInstruction() {
         if (!settings.enabled) return '';
         const { mode, minLightness, maxLightness } = getThemeLightnessBounds();
+        const thoughtSymbols = [...new Set(String(settings.thoughtSymbols || '').split('').filter(s => s && s.trim()))];
+        const delimiterSymbols = [...new Set(['"', ...thoughtSymbols])];
+        const delimiterSymbolList = delimiterSymbols.map(s => `"${s.replace(/"/g, '\\"')}"`).join(', ');
         const colorList = Object.entries(characterColors)
             .filter(([, v]) => v.locked && v.color)
             .map(([, v]) => `${v.name}=${getEntryEffectiveColor(v)}${v.style ? ` (${v.style})` : ''}`)
             .join(', ');
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
         const parts = [
-            `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags.`,
+            `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags, and include surrounding dialogue/thought delimiter symbols inside the same colored span.`,
             mode === 'dark' ? 'Use readable colors for a dark background. HARD RULE: Never use dark colors in dark mode. Use medium-to-light colors only; avoid low-lightness shades.' : 'Use readable colors for a light background. HARD RULE: Never use bright colors in light mode. Use medium-to-dark colors only; avoid high-lightness shades.',
         ];
+        parts.push(`Delimiter rule: always color delimiter symbols too (do not leave them uncolored). Symbols: ${delimiterSymbolList}.`);
         parts.push(`HARD RANGE: Keep color lightness between ${minLightness}% and ${maxLightness}% for ${mode} mode. This range is enforced.`);
         if (settings.brightness > 0) parts.push(`Apply +${settings.brightness}% lightness offset, then clamp to the hard range.`);
         if (settings.brightness < 0) parts.push(`Apply -${Math.abs(settings.brightness)}% lightness offset, then clamp to the hard range.`);
@@ -1356,7 +1360,7 @@
         if (colorList) parts.push(`Keep: ${colorList}.`);
         if (aliases) parts.push(`Aliases: ${aliases}.`);
         if (!settings.disableNarration && settings.narratorColor) parts.push(`Narrator: ${applyThemeReadabilityAndBrightness(settings.narratorColor)}.`);
-        if (settings.thoughtSymbols) parts.push(`Inner thoughts in ${settings.thoughtSymbols} must use <font color=...> with the speaker's color.`);
+        if (settings.thoughtSymbols) parts.push(`Inner thoughts using ${settings.thoughtSymbols} must color BOTH opening/closing symbol(s) and enclosed text with the speaker's color.`);
         if (settings.highlightMode) parts.push('Add background highlight.');
         if (settings.cssEffects) parts.push(`For intense emotion/magic/distortion, use CSS transforms: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase. Wrap in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.`);
         parts.push('Give new characters unique colors.');
