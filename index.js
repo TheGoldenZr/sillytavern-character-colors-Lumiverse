@@ -97,6 +97,8 @@
     let selectedKeys = new Set();
     // Phase 3A: Legend event listener cleanup
     let legendListeners = null;
+    let autoRecolorHintShown = false;
+    let isRecoloring = false;
 
     const CONTROL_HELP_TEXT = Object.freeze({
         'dc-enabled': 'Enable or disable Dialogue Colors prompt injection and color formatting.',
@@ -108,6 +110,11 @@
         'dc-gen-palette': 'Generate a custom palette from prompt words.',
         'dc-save-palette': 'Save current colors as a reusable custom palette.',
         'dc-del-palette': 'Delete the currently selected custom palette.',
+        'dc-palette-name-input': 'Name used for inline custom palette create/save actions.',
+        'dc-palette-notes-input': 'Optional notes that guide generated palette style.',
+        'dc-overwrite-existing': 'Allow replacing an existing custom palette with the same name.',
+        'dc-palette-save-inline': 'Save current active colors to the named custom palette.',
+        'dc-palette-generate-inline': 'Generate a custom palette from the name and notes fields.',
         'dc-brightness': 'Shift generated color lightness up or down.',
         'dc-autoscan': 'Automatically scan existing chat messages after chat load.',
         'dc-autoscan-new': 'Automatically scan newly arriving messages for speakers/colors.',
@@ -152,6 +159,7 @@
         'dc-del-locked': 'Delete all locked characters.',
         'dc-del-unlocked': 'Delete all unlocked characters.',
         'dc-del-least': 'Delete characters below a dialogue-count threshold.',
+        'dc-del-least-threshold': 'Minimum dialogue count to keep when using DelLeast.',
         'dc-del-dupes': 'Delete duplicate-color characters, keeping highest dialogue count.',
         'dc-search': 'Filter characters by name, alias, or group.',
         'dc-sort': 'Sort character list by name, dialogue count, or group.',
@@ -162,7 +170,8 @@
         'dc-batch-del': 'Delete selected characters.',
         'dc-batch-lock': 'Lock selected characters.',
         'dc-batch-unlock': 'Unlock selected characters.',
-        'dc-batch-style': 'Apply a style to selected characters.'
+        'dc-batch-style-select': 'Style to apply to selected characters.',
+        'dc-batch-style-apply': 'Apply the selected style to all selected characters.'
     });
 
     const DYNAMIC_CONTROL_HELP_TEXT = Object.freeze({
@@ -189,6 +198,8 @@
                 { label: 'Theme', key: 'dc-theme' },
                 { label: 'Palette', key: 'dc-palette' },
                 { label: 'Gen / + / -', key: 'dc-gen-palette' },
+                { label: 'Palette editor', key: 'dc-palette-name-input' },
+                { label: 'Overwrite palette', key: 'dc-overwrite-existing' },
                 { label: 'Brightness', key: 'dc-brightness' },
                 { label: 'Auto-brightness', key: 'dc-auto-brightness' }
             ]
@@ -218,7 +229,8 @@
                 { label: 'Import / Export / PNG', key: 'dc-export' },
                 { label: 'Card tools', key: 'dc-card' },
                 { label: 'Lock / Unlock / Reset', key: 'dc-lock-all' },
-                { label: 'Delete tools', key: 'dc-del-locked' }
+                { label: 'Delete tools', key: 'dc-del-locked' },
+                { label: 'Delete threshold', key: 'dc-del-least-threshold' }
             ]
         },
         {
@@ -226,7 +238,8 @@
             items: [
                 { label: 'Search / Sort', key: 'dc-search' },
                 { label: 'Add (+)', key: 'dc-add-btn' },
-                { label: 'Batch controls', key: 'dc-batch-all' }
+                { label: 'Batch controls', key: 'dc-batch-all' },
+                { label: 'Batch style', key: 'dc-batch-style-select' }
             ]
         },
         {
@@ -306,6 +319,27 @@
 
     function redo() {
         if (historyIndex < colorHistory.length - 1) { historyIndex++; characterColors = JSON.parse(colorHistory[historyIndex]); saveData(); updateCharList(); injectPrompt(); }
+    }
+
+    function showUndoToast(message) {
+        if (!toastr?.info) return;
+        toastr.info(`${message} Click this toast to undo.`, 'Undo Available', {
+            closeButton: true,
+            tapToDismiss: false,
+            timeOut: 7000,
+            extendedTimeOut: 3000,
+            onclick: () => undo()
+        });
+    }
+
+    function getInlinePaletteInputs() {
+        const name = document.getElementById('dc-palette-name-input')?.value?.trim() || '';
+        const notes = document.getElementById('dc-palette-notes-input')?.value || '';
+        return { name, notes };
+    }
+
+    function shouldOverwritePalette() {
+        return !!document.getElementById('dc-overwrite-existing')?.checked;
     }
 
     // Phase 5C: Handle custom palettes in getNextColor
@@ -772,13 +806,19 @@
         return sanitized.length ? sanitized : null;
     }
 
-    async function generateCustomPaletteFromWords() {
-        const rawName = prompt('Custom palette name (required):');
-        const name = rawName?.trim();
-        if (!name) return;
-        const notes = prompt('Theme notes (optional):') || '';
+    async function generateCustomPaletteFromWords(inputName = '', inputNotes = '') {
+        const inlineInputs = getInlinePaletteInputs();
+        const name = String(inputName || inlineInputs.name || '').trim();
+        if (!name) {
+            toastr?.warning?.('Enter a palette name first');
+            return;
+        }
+        const notes = String(inputNotes || inlineInputs.notes || '');
         const customs = getCustomPalettes();
-        if (customs[name] && !confirm(`Custom palette "${name}" exists. Overwrite?`)) return;
+        if (customs[name] && !shouldOverwritePalette()) {
+            toastr?.warning?.(`Custom palette "${name}" exists. Enable "Overwrite existing" to replace it.`);
+            return;
+        }
 
         const { palette: basePalette, profile } = generateHeuristicPalette(name, notes);
         let finalPalette = basePalette;
@@ -804,17 +844,23 @@
     }
 
     function saveCustomPalette() {
-        const name = prompt('Custom palette name:');
-        if (!name?.trim()) return;
+        const { name } = getInlinePaletteInputs();
+        if (!name) {
+            toastr?.warning?.('Enter a palette name first');
+            return;
+        }
         const colors = [...new Set(Object.values(characterColors).map(c => normalizeHexColor(c.color, null)).filter(Boolean))];
         if (!colors.length) { toastr?.warning?.('No characters to save palette from'); return; }
         const customs = getCustomPalettes();
-        if (customs[name.trim()] && !confirm(`Custom palette "${name.trim()}" exists. Overwrite?`)) return;
-        customs[name.trim()] = colors;
+        if (customs[name] && !shouldOverwritePalette()) {
+            toastr?.warning?.(`Custom palette "${name}" exists. Enable "Overwrite existing" to replace it.`);
+            return;
+        }
+        customs[name] = colors;
         localStorage.setItem(CUSTOM_PALETTE_KEY, JSON.stringify(customs));
-        setCustomPaletteMetaEntry(name.trim(), { source: 'heuristic', notes: '', createdAt: Date.now() });
+        setCustomPaletteMetaEntry(name, { source: 'heuristic', notes: '', createdAt: Date.now() });
         refreshPaletteDropdown();
-        toastr?.success?.(`Custom palette "${name.trim()}" saved`);
+        toastr?.success?.(`Custom palette "${name}" saved`);
     }
 
     function deleteCustomPalette() {
@@ -1669,135 +1715,156 @@
         toastr?.info?.(`Found ${Object.keys(characterColors).length} characters`);
     }
 
+    function setRecolorButtonBusy(isBusyState) {
+        const button = document.getElementById('dc-recolor');
+        if (!button) return;
+        if (isBusyState) {
+            if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent || 'Recolor';
+            button.disabled = true;
+            button.textContent = 'Recoloring...';
+            return;
+        }
+        button.disabled = false;
+        button.textContent = button.dataset.defaultLabel || 'Recolor';
+    }
+
     async function recolorAllMessages() {
         const ctx = getContext();
         const chat = ctx?.chat || [];
         if (!chat.length) { toastr?.info?.('No messages to recolor.'); return; }
+        if (isRecoloring) { toastr?.info?.('Recolor is already running.'); return; }
+        isRecoloring = true;
+        setRecolorButtonBusy(true);
 
-        const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
-        const fontTagRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?[^>]*>/gi;
-        syncAllEffectiveColors();
+        try {
+            const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
+            const fontTagRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?[^>]*>/gi;
+            syncAllEffectiveColors();
 
-        // Step 1: Build global reverse map (oldColor → characterName) from all [COLORS:] blocks.
-        // Later messages overwrite earlier so the most-recent assignment wins.
-        const globalColorToName = {};
-        for (const msg of chat) {
-            const text = msg?.mes || '';
-            let m;
-            while ((m = colorBlockRegex.exec(text)) !== null) {
-                for (const pair of m[1].split(',')) {
-                    const eqIdx = pair.indexOf('=');
-                    if (eqIdx === -1) continue;
-                    const { name } = parseNameWithNicknames(pair.substring(0, eqIdx).trim());
-                    const rawColor = pair.substring(eqIdx + 1).trim();
-                    if (name && /^#[0-9a-fA-F]{6}$/.test(rawColor)) {
-                        globalColorToName[rawColor.toLowerCase()] = name;
-                    }
-                }
-            }
-        }
-
-        // Step 2: Build current name → newColor lookup from characterColors (including aliases).
-        const nameToNewColor = {};
-        for (const entry of Object.values(characterColors)) {
-            const adjusted = normalizeHexColor(entry.color);
-            nameToNewColor[entry.name.toLowerCase()] = adjusted;
-            for (const alias of (entry.aliases || [])) {
-                nameToNewColor[alias.toLowerCase()] = adjusted;
-            }
-        }
-        // Include narrator color if set
-        if (settings.narratorColor) {
-            nameToNewColor['narrator'] = applyThemeReadabilityAndBrightness(settings.narratorColor);
-        }
-
-        // Step 3: Process each non-user message
-        let recoloredCount = 0;
-        const messageEls = document.querySelectorAll('.mes');
-        for (let i = 0; i < chat.length; i++) {
-            const msg = chat[i];
-            if (!msg || msg.is_user) continue;
-            const rawText = msg.mes || '';
-            if (!rawText) continue;
-
-            // Build per-message local oldColor→name map from this message's [COLORS:] block
-            const localColorToName = {};
-            let blockMatch;
-            const localBlockRegex = /\[COLORS?:(.*?)\]/gis;
-            while ((blockMatch = localBlockRegex.exec(rawText)) !== null) {
-                for (const pair of blockMatch[1].split(',')) {
-                    const eqIdx = pair.indexOf('=');
-                    if (eqIdx === -1) continue;
-                    const { name } = parseNameWithNicknames(pair.substring(0, eqIdx).trim());
-                    const rawColor = pair.substring(eqIdx + 1).trim();
-                    if (name && /^#[0-9a-fA-F]{6}$/.test(rawColor)) {
-                        localColorToName[rawColor.toLowerCase()] = name;
+            // Step 1: Build global reverse map (oldColor → characterName) from all [COLORS:] blocks.
+            // Later messages overwrite earlier so the most-recent assignment wins.
+            const globalColorToName = {};
+            for (const msg of chat) {
+                const text = msg?.mes || '';
+                let m;
+                while ((m = colorBlockRegex.exec(text)) !== null) {
+                    for (const pair of m[1].split(',')) {
+                        const eqIdx = pair.indexOf('=');
+                        if (eqIdx === -1) continue;
+                        const { name } = parseNameWithNicknames(pair.substring(0, eqIdx).trim());
+                        const rawColor = pair.substring(eqIdx + 1).trim();
+                        if (name && /^#[0-9a-fA-F]{6}$/.test(rawColor)) {
+                            globalColorToName[rawColor.toLowerCase()] = name;
+                        }
                     }
                 }
             }
 
-            // Merge: local overrides global
-            const mergedColorToName = { ...globalColorToName, ...localColorToName };
-
-            // Build oldColor → newColor replacement map
-            const replacements = {};
-            for (const [oldColor, charName] of Object.entries(mergedColorToName)) {
-                const newColor = nameToNewColor[charName.toLowerCase()];
-                if (newColor && normalizeHexColor(oldColor) !== normalizeHexColor(newColor)) {
-                    replacements[oldColor] = newColor;
+            // Step 2: Build current name → newColor lookup from characterColors (including aliases).
+            const nameToNewColor = {};
+            for (const entry of Object.values(characterColors)) {
+                const adjusted = normalizeHexColor(entry.color);
+                nameToNewColor[entry.name.toLowerCase()] = adjusted;
+                for (const alias of (entry.aliases || [])) {
+                    nameToNewColor[alias.toLowerCase()] = adjusted;
                 }
             }
-
-            if (!Object.keys(replacements).length) continue;
-
-            // Replace <font color=X> tags in raw msg.mes text
-            let updated = rawText.replace(fontTagRegex, (match, oldHex) => {
-                const key = oldHex.toLowerCase();
-                if (replacements[key]) {
-                    return match.replace(/(\bcolor\s*=\s*["']?)(#[0-9a-fA-F]{6})(["']?)/i, `$1${replacements[key]}$3`);
-                }
-                return match;
-            });
-
-            // Update [COLORS:] block colors in raw text
-            updated = updated.replace(colorBlockRegex, (fullMatch, pairsStr) => {
-                const newPairs = pairsStr.split(',').map(pair => {
-                    const eqIdx = pair.indexOf('=');
-                    if (eqIdx === -1) return pair;
-                    const namePart = pair.substring(0, eqIdx);
-                    const rawColor = pair.substring(eqIdx + 1).trim();
-                    const key = rawColor.toLowerCase();
-                    if (replacements[key]) return `${namePart}=${replacements[key]}`;
-                    return pair;
-                }).join(',');
-                return fullMatch.replace(pairsStr, newPairs);
-            });
-
-            if (updated !== rawText) {
-                msg.mes = updated;
-                recoloredCount++;
+            // Include narrator color if set
+            if (settings.narratorColor) {
+                nameToNewColor['narrator'] = applyThemeReadabilityAndBrightness(settings.narratorColor);
             }
 
-            // Update DOM font[color] attributes for this message
-            const mesEl = messageEls[i];
-            if (mesEl) {
-                const fontEls = mesEl.querySelectorAll('font[color]');
-                for (const fontEl of fontEls) {
-                    const oldAttr = (fontEl.getAttribute('color') || '').toLowerCase();
-                    if (replacements[oldAttr]) {
-                        fontEl.setAttribute('color', replacements[oldAttr]);
+            // Step 3: Process each non-user message
+            let recoloredCount = 0;
+            const messageEls = document.querySelectorAll('.mes');
+            for (let i = 0; i < chat.length; i++) {
+                const msg = chat[i];
+                if (!msg || msg.is_user) continue;
+                const rawText = msg.mes || '';
+                if (!rawText) continue;
+
+                // Build per-message local oldColor→name map from this message's [COLORS:] block
+                const localColorToName = {};
+                let blockMatch;
+                const localBlockRegex = /\[COLORS?:(.*?)\]/gis;
+                while ((blockMatch = localBlockRegex.exec(rawText)) !== null) {
+                    for (const pair of blockMatch[1].split(',')) {
+                        const eqIdx = pair.indexOf('=');
+                        if (eqIdx === -1) continue;
+                        const { name } = parseNameWithNicknames(pair.substring(0, eqIdx).trim());
+                        const rawColor = pair.substring(eqIdx + 1).trim();
+                        if (name && /^#[0-9a-fA-F]{6}$/.test(rawColor)) {
+                            localColorToName[rawColor.toLowerCase()] = name;
+                        }
+                    }
+                }
+
+                // Merge: local overrides global
+                const mergedColorToName = { ...globalColorToName, ...localColorToName };
+
+                // Build oldColor → newColor replacement map
+                const replacements = {};
+                for (const [oldColor, charName] of Object.entries(mergedColorToName)) {
+                    const newColor = nameToNewColor[charName.toLowerCase()];
+                    if (newColor && normalizeHexColor(oldColor) !== normalizeHexColor(newColor)) {
+                        replacements[oldColor] = newColor;
+                    }
+                }
+
+                if (!Object.keys(replacements).length) continue;
+
+                // Replace <font color=X> tags in raw msg.mes text
+                let updated = rawText.replace(fontTagRegex, (match, oldHex) => {
+                    const key = oldHex.toLowerCase();
+                    if (replacements[key]) {
+                        return match.replace(/(\bcolor\s*=\s*["']?)(#[0-9a-fA-F]{6})(["']?)/i, `$1${replacements[key]}$3`);
+                    }
+                    return match;
+                });
+
+                // Update [COLORS:] block colors in raw text
+                updated = updated.replace(colorBlockRegex, (fullMatch, pairsStr) => {
+                    const newPairs = pairsStr.split(',').map(pair => {
+                        const eqIdx = pair.indexOf('=');
+                        if (eqIdx === -1) return pair;
+                        const namePart = pair.substring(0, eqIdx);
+                        const rawColor = pair.substring(eqIdx + 1).trim();
+                        const key = rawColor.toLowerCase();
+                        if (replacements[key]) return `${namePart}=${replacements[key]}`;
+                        return pair;
+                    }).join(',');
+                    return fullMatch.replace(pairsStr, newPairs);
+                });
+
+                if (updated !== rawText) {
+                    msg.mes = updated;
+                    recoloredCount++;
+                }
+
+                // Update DOM font[color] attributes for this message
+                const mesEl = messageEls[i];
+                if (mesEl) {
+                    const fontEls = mesEl.querySelectorAll('font[color]');
+                    for (const fontEl of fontEls) {
+                        const oldAttr = (fontEl.getAttribute('color') || '').toLowerCase();
+                        if (replacements[oldAttr]) {
+                            fontEl.setAttribute('color', replacements[oldAttr]);
+                        }
                     }
                 }
             }
-        }
 
-        // Step 4: Persist and reload
-        if (recoloredCount > 0) {
-            await ctx.saveChat();
-            toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Reloading chat...`);
-            await ctx.reloadCurrentChat();
-        } else {
-            toastr?.info?.('No messages needed recoloring.');
+            // Step 4: Persist and reload
+            if (recoloredCount > 0) {
+                await ctx.saveChat();
+                toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Reloading chat...`);
+                await ctx.reloadCurrentChat();
+            } else {
+                toastr?.info?.('No messages needed recoloring.');
+            }
+        } finally {
+            isRecoloring = false;
+            setRecolorButtonBusy(false);
         }
     }
 
@@ -1901,7 +1968,14 @@
                 });
                 saveHistory(); saveData(); injectPrompt(); updateCharList();
             };
-            i.onchange = () => { if (settings.autoRecolor) recolorAllMessages(); };
+            i.onchange = () => {
+                if (!settings.autoRecolor) return;
+                if (!autoRecolorHintShown) {
+                    autoRecolorHintShown = true;
+                    toastr?.info?.('Auto-recolor is enabled; color changes will update chat automatically.');
+                }
+                recolorAllMessages();
+            };
             i.ondblclick = (e) => { e.preventDefault(); showHarmonyPopup(i.dataset.key, i); };
         });
         list.querySelectorAll('.dc-color-dot').forEach(dot => {
@@ -2141,6 +2215,13 @@
                         <label class="checkbox_label"><input type="checkbox" id="dc-css-effects"><span>CSS effects (emotion/magic transforms)</span></label>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Theme:</label><select id="dc-theme" class="text_pole" style="flex:1;"><option value="auto">Auto</option><option value="dark">Dark</option><option value="light">Light</option></select></div>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Palette:</label><select id="dc-palette" class="text_pole" style="flex:1;"></select><button id="dc-gen-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Generate custom palette from words">Gen</button><button id="dc-save-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Save current colors as custom palette">+</button><button id="dc-del-palette" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Delete custom palette">&minus;</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+                            <input type="text" id="dc-palette-name-input" placeholder="Palette name..." class="text_pole" style="flex:1;min-width:110px;padding:3px;">
+                            <input type="text" id="dc-palette-notes-input" placeholder="Palette notes (optional)" class="text_pole" style="flex:1;min-width:140px;padding:3px;">
+                            <button id="dc-palette-save-inline" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Save current colors to named custom palette">Save</button>
+                            <button id="dc-palette-generate-inline" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Generate custom palette from name and notes">Generate</button>
+                        </div>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-overwrite-existing"><span>Overwrite existing custom palette</span></label>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Bright:</label><input type="range" id="dc-brightness" min="-100" max="100" value="0" style="flex:1;"><span id="dc-bright-val">0</span></div>
                         <label class="checkbox_label"><input type="checkbox" id="dc-auto-brightness"><span>Auto-brightness on change</span></label>
                     </div>
@@ -2176,7 +2257,8 @@
                         <div style="display:flex;gap:4px;"><button id="dc-card" class="menu_button" style="flex:1;" title="Add from card">+Card</button><button id="dc-avatar-color" class="menu_button" style="flex:1;" title="Suggest color from avatar">Avatar</button><button id="dc-save-card" class="menu_button" style="flex:1;" title="Save to card">Save&rarr;Card</button><button id="dc-load-card" class="menu_button" style="flex:1;" title="Load from card">Card&rarr;Load</button></div>
                         <hr style="margin:4px 0;opacity:0.15;">
                         <div style="display:flex;gap:4px;"><button id="dc-lock-all" class="menu_button" style="flex:1;" title="Lock all characters">🔒All</button><button id="dc-unlock-all" class="menu_button" style="flex:1;" title="Unlock all characters">🔓All</button><button id="dc-reset" class="menu_button" style="flex:1;" title="Reset to default colors">Reset</button></div>
-                        <div style="display:flex;gap:4px;"><button id="dc-del-locked" class="menu_button" style="flex:1;" title="Delete all locked characters">DelLocked</button><button id="dc-del-unlocked" class="menu_button" style="flex:1;" title="Delete all unlocked characters">DelUnlocked</button><button id="dc-del-least" class="menu_button" style="flex:1;" title="Delete characters below dialogue threshold">DelLeast</button><button id="dc-del-dupes" class="menu_button" style="flex:1;" title="Delete duplicate colors, keep highest dialogue count">DelDupes</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><button id="dc-del-locked" class="menu_button" style="flex:1;" title="Delete all locked characters">DelLocked</button><button id="dc-del-unlocked" class="menu_button" style="flex:1;" title="Delete all unlocked characters">DelUnlocked</button><button id="dc-del-least" class="menu_button" style="flex:1;" title="Delete characters below dialogue threshold">DelLeast</button><input type="number" id="dc-del-least-threshold" min="0" value="3" class="text_pole" style="width:52px;padding:2px 4px;" title="Minimum dialogues to keep"></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-del-dupes" class="menu_button" style="flex:1;" title="Delete duplicate colors, keep highest dialogue count">DelDupes</button></div>
                         <input type="file" id="dc-import-file" accept=".json" style="display:none;">
                     </div>
                 </details>
@@ -2192,7 +2274,13 @@
                             <button id="dc-batch-del" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Delete</button>
                             <button id="dc-batch-lock" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Lock</button>
                             <button id="dc-batch-unlock" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Unlock</button>
-                            <button id="dc-batch-style" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Style</button>
+                            <select id="dc-batch-style-select" class="text_pole" style="padding:1px 4px;font-size:0.8em;min-width:92px;">
+                                <option value="">Style: none</option>
+                                <option value="bold">Style: bold</option>
+                                <option value="italic">Style: italic</option>
+                                <option value="bold italic">Style: bold italic</option>
+                            </select>
+                            <button id="dc-batch-style-apply" class="menu_button" style="padding:2px 6px;font-size:0.8em;">Apply Style</button>
                         </div>
                         <small>Characters: <span id="dc-count">0</span> (⭐=50+, 💎=100+)</small>
                         <div id="dc-char-list" style="max-height:300px;overflow-y:auto;"></div>
@@ -2236,7 +2324,14 @@
         $('dc-prompt-depth').oninput = e => { settings.promptDepth = parseInt(e.target.value) || 0; saveData(); injectPrompt(); };
         $('dc-help-toggle').onchange = e => { settings.showControlHelp = e.target.checked; saveData(); renderControlHelpPanel(); };
         $('dc-scan').onclick = scanAllMessages;
-        $('dc-clear').onclick = () => { characterColors = {}; selectedKeys.clear(); saveHistory(); saveData(); injectPrompt(); updateCharList(); };
+        $('dc-clear').onclick = () => {
+            const count = Object.keys(characterColors).length;
+            if (!count) { toastr?.info?.('No characters to clear'); return; }
+            characterColors = {};
+            selectedKeys.clear();
+            saveHistory(); saveData(); injectPrompt(); updateCharList();
+            showUndoToast(`Cleared ${count} character${count !== 1 ? 's' : ''}.`);
+        };
         $('dc-stats').onclick = showStatsPopup;
         $('dc-recolor').onclick = () => {
             if (confirm('Recolor all messages with current color assignments?')) {
@@ -2251,6 +2346,10 @@
         $('dc-delete-preset').onclick = deleteColorPreset;
         $('dc-gen-palette').onclick = async () => { await generateCustomPaletteFromWords(); };
         $('dc-save-palette').onclick = saveCustomPalette;
+        $('dc-palette-generate-inline').onclick = async () => { await generateCustomPaletteFromWords(); };
+        $('dc-palette-save-inline').onclick = saveCustomPalette;
+        $('dc-palette-name-input').onkeypress = e => { if (e.key === 'Enter') $('dc-palette-generate-inline').click(); };
+        $('dc-palette-notes-input').onkeypress = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('dc-palette-generate-inline').click(); };
         $('dc-del-palette').onclick = deleteCustomPalette;
         $('dc-card').onclick = autoAssignFromCard;
         $('dc-avatar-color').onclick = async () => {
@@ -2281,12 +2380,23 @@
         $('dc-import').onclick = () => $('dc-import-file').click();
         $('dc-export-png').onclick = exportLegendPng;
         $('dc-import-file').onchange = e => { if (e.target.files[0]) importColors(e.target.files[0]); };
-        $('dc-del-locked').onclick = () => { let count = 0; Object.keys(characterColors).forEach(k => { if (characterColors[k].locked) { delete characterColors[k]; selectedKeys.delete(k); count++; } }); saveHistory(); saveData(); injectPrompt(); updateCharList(); toastr?.info?.(`Deleted ${count} locked characters`); };
-        $('dc-del-unlocked').onclick = () => { let count = 0; Object.keys(characterColors).forEach(k => { if (!characterColors[k].locked) { delete characterColors[k]; selectedKeys.delete(k); count++; } }); saveHistory(); saveData(); injectPrompt(); updateCharList(); toastr?.info?.(`Deleted ${count} unlocked characters`); };
+        $('dc-del-locked').onclick = () => {
+            let count = 0;
+            Object.keys(characterColors).forEach(k => { if (characterColors[k].locked) { delete characterColors[k]; selectedKeys.delete(k); count++; } });
+            if (!count) { toastr?.info?.('No locked characters to delete'); return; }
+            saveHistory(); saveData(); injectPrompt(); updateCharList();
+            showUndoToast(`Deleted ${count} locked character${count !== 1 ? 's' : ''}.`);
+        };
+        $('dc-del-unlocked').onclick = () => {
+            let count = 0;
+            Object.keys(characterColors).forEach(k => { if (!characterColors[k].locked) { delete characterColors[k]; selectedKeys.delete(k); count++; } });
+            if (!count) { toastr?.info?.('No unlocked characters to delete'); return; }
+            saveHistory(); saveData(); injectPrompt(); updateCharList();
+            showUndoToast(`Deleted ${count} unlocked character${count !== 1 ? 's' : ''}.`);
+        };
         $('dc-del-least').onclick = () => {
-            const threshold = prompt('Delete characters with fewer than N dialogues.\nEnter minimum dialogue count to keep:', '3');
-            if (threshold === null) return;
-            const min = parseInt(threshold, 10);
+            const thresholdField = $('dc-del-least-threshold');
+            const min = parseInt(thresholdField?.value || '3', 10);
             if (isNaN(min) || min < 0) { toastr?.warning?.('Invalid threshold'); return; }
             let count = 0;
             Object.keys(characterColors).forEach(k => {
@@ -2294,8 +2404,9 @@
                     delete characterColors[k]; selectedKeys.delete(k); count++;
                 }
             });
+            if (!count) { toastr?.info?.(`No characters below ${min} dialogues`); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
-            toastr?.info?.(`Deleted ${count} characters with <${min} dialogues`);
+            showUndoToast(`Deleted ${count} character${count !== 1 ? 's' : ''} with <${min} dialogues.`);
         };
         $('dc-del-dupes').onclick = () => {
             const colorGroups = {};
@@ -2313,8 +2424,9 @@
                     });
                 }
             });
+            if (!deleted) { toastr?.info?.('No duplicate colors found'); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
-            toastr?.info?.(`Deleted ${deleted} duplicate-color characters`);
+            showUndoToast(`Deleted ${deleted} duplicate-color character${deleted !== 1 ? 's' : ''}.`);
         };
         $('dc-lock-all').onclick = () => {
             let count = 0;
@@ -2338,7 +2450,19 @@
             if (count) saveHistory();
             saveData(); updateCharList(); toastr?.info?.(`Unlocked ${count} characters`);
         };
-        $('dc-reset').onclick = () => { if (confirm('Reset all colors?')) { Object.values(characterColors).forEach(c => { if (!c.locked) setEntryFromBaseColor(c, getNextColor()); }); saveHistory(); saveData(); updateCharList(); injectPrompt(); } };
+        $('dc-reset').onclick = () => {
+            if (!confirm('Reset all colors?')) return;
+            let changed = 0;
+            Object.values(characterColors).forEach(c => {
+                if (!c.locked) {
+                    setEntryFromBaseColor(c, getNextColor());
+                    changed++;
+                }
+            });
+            if (!changed) { toastr?.info?.('No unlocked colors to reset'); return; }
+            saveHistory(); saveData(); updateCharList(); injectPrompt();
+            showUndoToast(`Reset ${changed} unlocked color${changed !== 1 ? 's' : ''}.`);
+        };
         $('dc-search').oninput = e => { searchTerm = e.target.value; updateCharList(); };
         $('dc-sort').onchange = e => { sortMode = e.target.value; updateCharList(); };
         $('dc-add-btn').onclick = () => { addCharacter($('dc-add-name').value); $('dc-add-name').value = ''; };
@@ -2347,7 +2471,14 @@
         // Phase 6A: Batch operations
         $('dc-batch-all').onclick = () => { Object.keys(characterColors).forEach(k => selectedKeys.add(k)); updateCharList(); };
         $('dc-batch-none').onclick = () => { selectedKeys.clear(); updateCharList(); };
-        $('dc-batch-del').onclick = () => { if (!selectedKeys.size) return; selectedKeys.forEach(k => delete characterColors[k]); selectedKeys.clear(); saveHistory(); saveData(); injectPrompt(); updateCharList(); toastr?.info?.('Deleted selected characters'); };
+        $('dc-batch-del').onclick = () => {
+            if (!selectedKeys.size) return;
+            const count = selectedKeys.size;
+            selectedKeys.forEach(k => delete characterColors[k]);
+            selectedKeys.clear();
+            saveHistory(); saveData(); injectPrompt(); updateCharList();
+            showUndoToast(`Deleted ${count} selected character${count !== 1 ? 's' : ''}.`);
+        };
         $('dc-batch-lock').onclick = () => {
             let changed = false;
             selectedKeys.forEach(k => {
@@ -2370,12 +2501,9 @@
             if (changed) saveHistory();
             saveData(); updateCharList(); toastr?.info?.('Unlocked selected characters');
         };
-        $('dc-batch-style').onclick = () => {
-            const style = prompt('Style for selected (bold, italic, bold italic, or blank):');
-            if (style === null) return;
-            const styles = ['', 'bold', 'italic', 'bold italic'];
-            const normalizedStyle = style.trim().toLowerCase();
-            const validStyle = styles.includes(normalizedStyle) ? normalizedStyle : '';
+        $('dc-batch-style-apply').onclick = () => {
+            if (!selectedKeys.size) { toastr?.info?.('Select at least one character first'); return; }
+            const validStyle = $('dc-batch-style-select')?.value || '';
             let changed = false;
             selectedKeys.forEach(k => {
                 if (characterColors[k] && characterColors[k].style !== validStyle) {
@@ -2383,7 +2511,8 @@
                     changed = true;
                 }
             });
-            if (changed) saveHistory();
+            if (!changed) { toastr?.info?.('Selected characters already use that style'); return; }
+            saveHistory();
             saveData(); injectPrompt(); updateCharList();
         };
 
