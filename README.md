@@ -110,65 +110,76 @@ Effects are visible in chat but stripped from the prompt context.
 | Control | Function |
 |---------|----------|
 | **Enable** | Toggle extension on/off |
-| **Highlight mode** | Add background highlights to dialogue |
-| **Show floating legend** | Overlay showing character colors |
-| **CSS effects** | Enable emotion/magic CSS transforms |
-| **Theme** | Auto/Dark/Light mode |
-| **Palette** | Choose from 17 built-in + custom palettes |
-| **Gen** (Palette) | Generate a custom palette from words (name + optional notes) |
-| **+/−** (Palette) | Save current colors as custom palette / Delete custom palette |
-| **Brightness** | Adjust all colors lighter/darker |
-| **Auto-brightness** | Automatically recolor messages on brightness change (default: off) |
+| **Show control help** | Show/hide inline help panel explaining each control |
+| **Highlight mode** | Add background highlights behind colored dialogue |
+| **Show floating legend** | Draggable overlay showing character→color mapping |
+| **CSS effects** | Enable emotion/magic CSS transforms on dialogue |
+| **Theme** | Auto/Dark/Light — controls color lightness targeting for readability (Auto detects from ST background) |
+| **Palette** | Color palette used for new or regenerated character colors (17 built-in + custom) |
+| **Gen** (Palette) | Generate a custom palette from the name + notes fields below |
+| **+/−** (Palette) | Save current character colors as custom palette / Delete selected custom palette |
+| **Palette name** | Name for the custom palette to create or save |
+| **Palette notes** | Optional notes that guide generated palette style |
+| **Overwrite existing** | Allow replacing an existing custom palette with the same name |
+| **Brightness** | Shift effective color lightness up/down (does not change stored base colors) |
+| **Auto-brightness** | Automatically recolor messages when the brightness slider changes (default: on) |
 
 ### Behavior Section
 | Control | Function |
 |---------|----------|
-| **Auto-scan on chat load** | Scan for characters when opening a chat |
-| **Auto-scan new messages** | Scan each new generated message for colors |
-| **Auto-lock detected characters** | Automatically lock newly detected characters |
-| **Auto-recolor on change** | Recolor + reload chat when colors change (default: on) |
-| **Enable right-click context menu** | Enable right-click/long-press color assignment |
-| **Disable narration** | Exclude narrator from coloring |
-| **Share colors globally** | Use same colors across all chats |
-| **Enhance generated palettes with LLM** | Optional LLM refinement with automatic local fallback |
-| **Narrator** | Set narrator color |
-| **Thoughts** | Symbols for inner thoughts |
+| **Auto-scan on chat load** | Scan existing messages for characters when opening a chat |
+| **Auto-scan new messages** | Scan each newly generated message for `[COLORS:]` blocks |
+| **Auto-lock detected characters** | Automatically lock newly detected characters (default: on) |
+| **Auto-recolor on change** | Recolor + reload chat when colors change via picker, regen, or theme flip (default: on) |
+| **Enable right-click context menu** | Right-click (desktop) or long-press (mobile) colored dialogue to assign it to a character (default: off) |
+| **Disable narration** | Exclude narrator from the color prompt instructions (default: on) |
+| **Share colors globally** | Use one shared color table across all chats instead of per-chat storage |
+| **Enhance palettes with LLM** | Use LLM to refine generated custom palettes; falls back to local generator on failure |
+| **Narrator** | Set the narrator color used in prompt instructions |
+| **Clear** (Narrator) | Clear custom narrator color and return to default |
+| **Thoughts** | Symbols used to detect and color inner-thought dialogue (e.g., `*`, `『』`) |
+| **+** (Thought) | Add another thought symbol |
+| **Clear** (Thought) | Remove all thought symbols |
+| **Prompt depth** | How many messages from the chat end to inject the color prompt (default: 4) |
 
 ### Actions Section
 | Control | Function |
 |---------|----------|
-| **Scan** | Scan messages for color blocks |
-| **Clear** | Remove all characters |
+| **Scan** | Scan all chat messages for `[COLORS:]` blocks, extract characters/colors, and reset dialogue counts |
+| **Clear** | Remove all tracked characters and color assignments |
 | **Stats** | Show dialogue statistics |
-| **Recolor** | Rewrite font colors in all messages to match current color assignments |
-| **Fix** | Auto-resolve color conflicts (reports which pairs were fixed) |
-| **Regen** | Regenerate all colors |
-| **☀/🌙** | Flip colors for dark↔light theme switch |
-| **Preset Save/Load/Del** | Manage color presets via dropdown |
-| **Export/Import** | Backup colors as JSON |
-| **PNG** | Export legend as image (theme-aware background) |
-| **+Card** | Add current character |
-| **Avatar** | Extract color from avatar |
-| **Save→Card** | Save to character card |
-| **Card→Load** | Load from character card |
+| **Recolor** | Rewrite `<font color>` tags in all messages to match current assignments and reload chat |
+| **↶/↷** (Undo/Redo) | Undo/redo color-table changes (also Ctrl+Z / Ctrl+Y) |
+| **Fix** | Auto-resolve colors that are too visually similar (reports which pairs were changed) |
+| **Regen** | Regenerate colors for unlocked characters — uses name-based suggestions (e.g., "Rose" → pink) before falling back to palette |
+| **☀/🌙** | Invert color lightness for dark↔light theme switch |
+| **Preset Save/Load/Del** | Manage named color presets via dropdown |
+| **Export/Import** | Backup/restore colors and settings as JSON |
+| **PNG** | Export floating legend as a theme-aware PNG image |
+| **+Card** | Add the current card character to the color list (skips if already present) |
+| **Avatar** | Extract dominant color from the current character's avatar and assign it |
+| **Save→Card** | Save color data into character card metadata |
+| **Card→Load** | Load color data from character card metadata |
 | **🔒All/🔓All** | Lock/unlock all characters |
-| **Reset** | Reset unlocked colors |
+| **Reset** | Reassign palette colors to all unlocked characters (random, no name-based suggestions) |
 | **DelLocked** | Delete all locked characters |
 | **DelUnlocked** | Delete all unlocked characters |
-| **DelLeast** | Delete characters below dialogue threshold |
-| **DelDupes** | Delete duplicate colors, keep highest dialogue count |
+| **DelLeast** | Delete characters below the dialogue-count threshold |
+| **DelLeast threshold** | Minimum dialogue count to keep (input next to DelLeast) |
+| **DelDupes** | Delete duplicate-color characters, keeping the one with the highest dialogue count |
 
 ### Characters Section
 | Control | Function |
 |---------|----------|
 | **Search** | Filter characters by name |
 | **Sort** | Sort by Name, Dialogue Count, or Group |
+| **Add** (name + button) | Manually add a character by typing a name — assigns a suggested color |
 | **Batch bar** | Appears when characters are selected: Select All, Deselect All, Delete, Lock, Unlock, Style |
 | **☐** (checkbox) | Select character for batch operations |
-| **🔒** | Lock/unlock character color |
-| **⇄** | Swap colors between characters |
-| **S** | Cycle text style |
-| **+** | Add alias |
+| **🔒** | Lock/unlock individual character color |
+| **⇄** | Swap colors between two characters (click two in sequence) |
+| **S** | Cycle text style: normal → bold → italic → bold+italic |
+| **+** | Add an alias that maps to this character's color |
 | **G** | Assign character to a group |
 | **×** | Delete character |
 | **Double-click color** | Show color harmony suggestions (complementary, triadic, analogous) |
