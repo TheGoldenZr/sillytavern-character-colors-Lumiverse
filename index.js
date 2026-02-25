@@ -1015,13 +1015,14 @@
     }
 
     function getEntryEffectiveColor(entry) {
+        if (entry?.locked) return entry.color;
         return applyThemeReadabilityAndBrightness(getBaseColor(entry));
     }
 
     function setEntryFromBaseColor(entry, baseColor) {
         if (!entry) return '#888888';
         entry.baseColor = normalizeHexColor(baseColor, getBaseColor(entry));
-        entry.color = getEntryEffectiveColor(entry);
+        entry.color = applyThemeReadabilityAndBrightness(getBaseColor(entry));
         return entry.color;
     }
 
@@ -1029,7 +1030,7 @@
         if (!entry) return '#888888';
         const normalizedEffective = normalizeHexColor(effectiveColor, entry.color);
         entry.baseColor = deriveBaseColorFromEffectiveColor(normalizedEffective);
-        entry.color = getEntryEffectiveColor(entry);
+        entry.color = applyThemeReadabilityAndBrightness(getBaseColor(entry));
         return entry.color;
     }
 
