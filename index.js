@@ -918,11 +918,16 @@
             : { mode, minLightness: 12, maxLightness: 65 };
     }
 
+    function getBrightnessOffset() {
+        if (!normalizeBoolean(settings.autoBrightness, false)) return 0;
+        const brightness = Number(settings.brightness);
+        return Number.isFinite(brightness) ? Math.max(-100, Math.min(100, brightness)) : 0;
+    }
+
     function applyThemeReadabilityAndBrightness(hexColor) {
         const normalized = normalizeHexColor(hexColor);
         const [h, s, l] = hexToHsl(normalized);
-        const brightness = Number(settings.brightness);
-        const offset = Number.isFinite(brightness) ? Math.max(-100, Math.min(100, brightness)) : 0;
+        const offset = getBrightnessOffset();
         const { minLightness, maxLightness } = getThemeLightnessBounds();
         const adjustedL = Math.max(minLightness, Math.min(maxLightness, l + offset));
         return hslToHex(h, s, adjustedL);
@@ -931,8 +936,7 @@
     function deriveBaseColorFromEffectiveColor(hexColor) {
         const normalized = normalizeHexColor(hexColor);
         const [h, s, l] = hexToHsl(normalized);
-        const brightness = Number(settings.brightness);
-        const offset = Number.isFinite(brightness) ? Math.max(-100, Math.min(100, brightness)) : 0;
+        const offset = getBrightnessOffset();
         const baseL = Math.max(0, Math.min(100, l - offset));
         return hslToHex(h, s, baseL);
     }
@@ -1125,7 +1129,7 @@
         settings.colorSchemaVersion = COLOR_SCHEMA_VERSION;
         syncAllEffectiveColors();
         localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
-        localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness }));
+        localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness, autoBrightness: settings.autoBrightness }));
     }
 
     // Phase 1B: Deduplicated global settings load via applyGlobal helper
@@ -1135,6 +1139,7 @@
         if (g.themeMode !== undefined) settings.themeMode = g.themeMode;
         if (g.colorTheme !== undefined) settings.colorTheme = g.colorTheme;
         if (g.brightness !== undefined) settings.brightness = g.brightness;
+        if (g.autoBrightness !== undefined) settings.autoBrightness = g.autoBrightness;
     }
 
     function migrateColorSchemaIfNeeded() {
@@ -1337,14 +1342,15 @@
             .map(([, v]) => `${v.name}=${getEntryEffectiveColor(v)}${v.style ? ` (${v.style})` : ''}`)
             .join(', ');
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
+        const brightnessOffset = getBrightnessOffset();
         const parts = [
             `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags, and include surrounding dialogue/thought delimiter symbols inside the same colored span.`,
             mode === 'dark' ? 'Use readable colors for a dark background. HARD RULE: Never use dark colors in dark mode. Use medium-to-light colors only; avoid low-lightness shades.' : 'Use readable colors for a light background. HARD RULE: Never use bright colors in light mode. Use medium-to-dark colors only; avoid high-lightness shades.',
         ];
         parts.push(`Delimiter rule: always color delimiter symbols too (do not leave them uncolored). Symbols: ${delimiterSymbolList}.`);
         parts.push(`HARD RANGE: Keep color lightness between ${minLightness}% and ${maxLightness}% for ${mode} mode. This range is enforced.`);
-        if (settings.brightness > 0) parts.push(`Apply +${settings.brightness}% lightness offset, then clamp to the hard range.`);
-        if (settings.brightness < 0) parts.push(`Apply -${Math.abs(settings.brightness)}% lightness offset, then clamp to the hard range.`);
+        if (brightnessOffset > 0) parts.push(`Apply +${brightnessOffset}% lightness offset, then clamp to the hard range.`);
+        if (brightnessOffset < 0) parts.push(`Apply -${Math.abs(brightnessOffset)}% lightness offset, then clamp to the hard range.`);
         const customPalettePrompt = buildCustomPalettePrompt();
         if (customPalettePrompt) {
             parts.push(customPalettePrompt);
@@ -2270,7 +2276,7 @@
         $('dc-llm-palette').onchange = e => { settings.llmEnhanceCustomPalettes = e.target.checked; saveData(); };
         $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); if (settings.autoRecolor) recolorAllMessages(); };
         $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
-        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); };
+        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); if (settings.autoBrightness === true) syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); };
         $('dc-brightness').onchange = () => {
             normalizeToggleSettings();
             if (settings.autoBrightness === true) recolorAllMessages();
