@@ -115,6 +115,7 @@
     let legendListeners = null;
     let autoRecolorHintShown = false;
     let isRecoloring = false;
+    let brightnessRecolorTimer = null;
 
     const DYNAMIC_CONTROL_HELP_TEXT = Object.freeze({
         '.dc-batch-check': 'Select this character row for batch actions.',
@@ -143,7 +144,7 @@
                 { label: 'Palette editor', key: 'dc-palette-name-input' },
                 { label: 'Overwrite palette', key: 'dc-overwrite-existing' },
                 { label: 'Brightness', key: 'dc-brightness' },
-                { label: 'Auto-brightness', key: 'dc-auto-brightness' }
+                { label: 'Auto-update generated colors', key: 'dc-auto-brightness' }
             ]
         },
         {
@@ -1831,6 +1832,24 @@
         }
     }
 
+    function triggerBrightnessAutoRecolor(immediate = false) {
+        if (brightnessRecolorTimer) {
+            clearTimeout(brightnessRecolorTimer);
+            brightnessRecolorTimer = null;
+        }
+        normalizeToggleSettings();
+        if (settings.autoBrightness !== true) return;
+        if (immediate) {
+            recolorAllMessages();
+            return;
+        }
+        brightnessRecolorTimer = setTimeout(() => {
+            brightnessRecolorTimer = null;
+            normalizeToggleSettings();
+            if (settings.autoBrightness === true) recolorAllMessages();
+        }, 220);
+    }
+
     function onNewMessage() {
         if (!settings.enabled || !settings.autoScanNewMessages) return;
         setTimeout(() => {
@@ -2184,7 +2203,7 @@
                         </div>
                         <label class="checkbox_label"><input type="checkbox" id="dc-overwrite-existing" data-help="Allow replacing an existing custom palette with the same name."><span>Overwrite existing custom palette</span></label>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Bright:</label><input type="range" id="dc-brightness" min="-100" max="100" value="0" style="flex:1;" data-help="Shift effective color lightness up or down. Does not change stored base colors."><span id="dc-bright-val">0</span></div>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-brightness" data-help="Automatically recolor messages when the brightness slider changes."><span>Auto-brightness on change</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-brightness" data-help="Automatically recolor generated message colors based on brightness slider changes."><span>Auto-update generated colors from Brightness slider</span></label>
                     </div>
                 </details>
                 <details class="dc-section">
@@ -2275,11 +2294,8 @@
         $('dc-llm-palette').onchange = e => { settings.llmEnhanceCustomPalettes = e.target.checked; saveData(); };
         $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); if (settings.autoRecolor) recolorAllMessages(); };
         $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
-        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); };
-        $('dc-brightness').onchange = () => {
-            normalizeToggleSettings();
-            if (settings.autoBrightness === true) recolorAllMessages();
-        };
+        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); triggerBrightnessAutoRecolor(false); };
+        $('dc-brightness').onchange = () => { triggerBrightnessAutoRecolor(true); };
         $('dc-narrator').oninput = e => { settings.narratorColor = e.target.value; saveData(); injectPrompt(); };
         $('dc-narrator-clear').onclick = () => { settings.narratorColor = ''; $('dc-narrator').value = '#888888'; saveData(); injectPrompt(); };
         $('dc-thought-symbols').oninput = e => { settings.thoughtSymbols = e.target.value; saveData(); injectPrompt(); };
