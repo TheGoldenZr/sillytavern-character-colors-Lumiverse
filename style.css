@@ -51,6 +51,32 @@
     color: inherit;
 }
 
+#dc-storage-popup input.dc-storage-check[type="checkbox"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    display: inline-block !important;
+    position: relative !important;
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px !important;
+    min-height: 16px !important;
+    flex-shrink: 0 !important;
+    border: 2px solid var(--SmartThemeBorderColor, #888) !important;
+    border-radius: 50% !important;
+    background: transparent !important;
+    cursor: pointer !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    opacity: 1 !important;
+    outline: none !important;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+#dc-storage-popup input.dc-storage-check[type="checkbox"]:checked {
+    background: var(--SmartThemeQuoteColor, #5a9) !important;
+    border-color: var(--SmartThemeQuoteColor, #5a9) !important;
+}
+
 #dc-harmony-popup {
     font-size: 0.85em;
 }
