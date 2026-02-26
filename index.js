@@ -919,7 +919,6 @@
     }
 
     function getBrightnessOffset() {
-        if (!normalizeBoolean(settings.autoBrightness, false)) return 0;
         const brightness = Number(settings.brightness);
         return Number.isFinite(brightness) ? Math.max(-100, Math.min(100, brightness)) : 0;
     }
@@ -2276,7 +2275,7 @@
         $('dc-llm-palette').onchange = e => { settings.llmEnhanceCustomPalettes = e.target.checked; saveData(); };
         $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); if (settings.autoRecolor) recolorAllMessages(); };
         $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
-        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); if (settings.autoBrightness === true) syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); };
+        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); };
         $('dc-brightness').onchange = () => {
             normalizeToggleSettings();
             if (settings.autoBrightness === true) recolorAllMessages();
