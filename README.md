@@ -73,6 +73,10 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
+## What's New in 3.1.7
+
+- **Storage Manager** — new "Storage" button in Actions lets you browse and clear stored color data across all chats. Useful for freeing localStorage or fixing corrupted entries that cause buttons to stop working. Current chat is highlighted and unchecked by default to prevent accidental self-clearing.
+
 ## What's New in 3.1.6
 
 - **Brightness slider always auto-recolors** — removed the `Auto-brightness` toggle; moving the brightness slider now unconditionally refreshes chat colors for unlocked characters.
@@ -162,6 +166,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **DelLeast** | Delete characters below the dialogue-count threshold |
 | **DelLeast threshold** | Minimum dialogue count to keep (input next to DelLeast) |
 | **DelDupes** | Delete duplicate-color characters, keeping the one with the highest dialogue count |
+| **Storage** | Browse and clear stored color data across all chats — shows character names, color counts, and data sizes |
 
 ### Characters Section
 | Control | Function |

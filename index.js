@@ -1523,6 +1523,63 @@
         setTimeout(() => document.addEventListener('mousedown', closePopup), 10);
     }
 
+    function showStorageManager() {
+        const currentKey = getStorageKey();
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if ((k.startsWith('dc_char_') || k === 'dc_global') && k !== 'dc_global_settings') keys.push(k);
+        }
+        if (!keys.length) { toastr?.info?.('No stored color data found'); return; }
+
+        const entries = keys.map(k => {
+            const raw = localStorage.getItem(k);
+            const size = new Blob([raw]).size;
+            let names = [], colorCount = 0;
+            try {
+                const parsed = JSON.parse(raw);
+                const colors = parsed.colors || {};
+                colorCount = Object.keys(colors).length;
+                names = Object.values(colors).map(v => v.name).filter(Boolean).slice(0, 3);
+            } catch { /* corrupted data — still show it */ }
+            const isCurrent = k === currentKey;
+            const label = names.length ? names.join(', ') + (colorCount > 3 ? ` (+${colorCount - 3})` : '') : k;
+            const sizeStr = size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`;
+            return { key: k, label, colorCount, sizeStr, size, isCurrent };
+        });
+        entries.sort((a, b) => a.isCurrent ? -1 : b.isCurrent ? 1 : a.key.localeCompare(b.key));
+
+        const rows = entries.map(e => {
+            const highlight = e.isCurrent ? 'background:rgba(255,255,255,0.06);border-radius:4px;padding:2px 4px;' : 'padding:2px 4px;';
+            const tag = e.isCurrent ? ' <span style="font-size:0.75em;opacity:0.6;">(current)</span>' : '';
+            return `<label style="display:flex;align-items:center;gap:6px;${highlight}cursor:pointer;"><input type="checkbox" class="dc-storage-check" data-key="${escapeHtml(e.key)}" ${e.isCurrent ? '' : 'checked'}><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(e.label)}${tag}</span><span style="font-size:0.75em;opacity:0.6;white-space:nowrap;">${e.colorCount} colors · ${e.sizeStr}</span></label>`;
+        }).join('');
+
+        const popup = document.createElement('div');
+        popup.id = 'dc-storage-popup';
+        popup.innerHTML = `<div style="font-weight:bold;margin-bottom:8px;">Storage Manager</div>${rows}<div style="display:flex;gap:4px;margin-top:10px;flex-wrap:wrap;"><button class="dc-storage-all menu_button" style="flex:1;">Select All</button><button class="dc-storage-none menu_button" style="flex:1;">Deselect All</button></div><div style="display:flex;gap:4px;margin-top:4px;"><button class="dc-storage-clear menu_button" style="flex:1;">Clear Selected</button><button class="dc-storage-close menu_button" style="flex:1;">Close</button></div>`;
+
+        const checks = () => popup.querySelectorAll('.dc-storage-check');
+        popup.querySelector('.dc-storage-all').onclick = () => checks().forEach(c => c.checked = true);
+        popup.querySelector('.dc-storage-none').onclick = () => checks().forEach(c => c.checked = false);
+        popup.querySelector('.dc-storage-close').onclick = () => { popup.remove(); document.removeEventListener('mousedown', closePopup); };
+        popup.querySelector('.dc-storage-clear').onclick = () => {
+            const selected = [...checks()].filter(c => c.checked).map(c => c.dataset.key);
+            if (!selected.length) { toastr?.info?.('Nothing selected'); return; }
+            if (!confirm(`Clear ${selected.length} stored color data entr${selected.length === 1 ? 'y' : 'ies'}?`)) return;
+            let clearedCurrent = false;
+            selected.forEach(k => { if (k === currentKey) clearedCurrent = true; localStorage.removeItem(k); });
+            popup.remove();
+            document.removeEventListener('mousedown', closePopup);
+            if (clearedCurrent) { characterColors = {}; selectedKeys.clear(); saveHistory(); updateCharList(); injectPrompt(); }
+            toastr?.success?.(`Cleared ${selected.length} entr${selected.length === 1 ? 'y' : 'ies'}.`);
+        };
+
+        document.body.appendChild(popup);
+        const closePopup = e => { if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('mousedown', closePopup); } };
+        setTimeout(() => document.addEventListener('mousedown', closePopup), 10);
+    }
+
     function saveToCard() {
         try {
             const ctx = getContext();
@@ -2246,6 +2303,7 @@
                         <div style="display:flex;gap:4px;"><button id="dc-lock-all" class="menu_button" style="flex:1;" title="Lock all characters" data-help="Lock every tracked character color.">🔒All</button><button id="dc-unlock-all" class="menu_button" style="flex:1;" title="Unlock all characters" data-help="Unlock every tracked character color.">🔓All</button><button id="dc-reset" class="menu_button" style="flex:1;" title="Reset to default colors" data-help="Reassign random palette colors to all unlocked characters (no name-based suggestions).">Reset</button></div>
                         <div style="display:flex;gap:4px;align-items:center;"><button id="dc-del-locked" class="menu_button" style="flex:1;" title="Delete all locked characters" data-help="Delete all locked characters.">DelLocked</button><button id="dc-del-unlocked" class="menu_button" style="flex:1;" title="Delete all unlocked characters" data-help="Delete all unlocked characters.">DelUnlocked</button><button id="dc-del-least" class="menu_button" style="flex:1;" title="Delete characters below dialogue threshold" data-help="Delete characters below a dialogue-count threshold.">DelLeast</button><input type="number" id="dc-del-least-threshold" min="0" value="3" class="text_pole" style="width:52px;padding:2px 4px;" title="Minimum dialogues to keep" data-help="Minimum dialogue count to keep when using DelLeast."></div>
                         <div style="display:flex;gap:4px;"><button id="dc-del-dupes" class="menu_button" style="flex:1;" title="Delete duplicate colors, keep highest dialogue count" data-help="Delete duplicate-color characters, keeping highest dialogue count.">DelDupes</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-storage" class="menu_button" style="flex:1;" title="Manage stored color data across all chats" data-help="Browse and clear stored color data for any character chat. Useful for freeing storage or fixing corrupted data.">Storage</button></div>
                         <input type="file" id="dc-import-file" accept=".json" style="display:none;">
                     </div>
                 </details>
@@ -2419,6 +2477,7 @@
             saveHistory(); saveData(); injectPrompt(); updateCharList();
             showUndoToast(`Deleted ${deleted} duplicate-color character${deleted !== 1 ? 's' : ''}.`, restore);
         };
+        $('dc-storage').onclick = showStorageManager;
         $('dc-lock-all').onclick = () => {
             let count = 0;
             Object.keys(characterColors).forEach(k => {

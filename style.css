@@ -29,6 +29,28 @@
     color: inherit;
 }
 
+#dc-storage-popup {
+    position: fixed !important;
+    top: 20% !important;
+    left: 50% !important;
+    transform: translate(-50%, 0) !important;
+    min-width: 300px !important;
+    max-width: 90vw !important;
+    max-height: 70vh !important;
+    overflow-y: auto !important;
+    z-index: 9999 !important;
+    background-color: var(--SmartThemeBlurTintColor, #1a1a1a) !important;
+    border: 1px solid var(--SmartThemeBorderColor, #444) !important;
+    border-radius: 8px !important;
+    padding: 16px !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+    color: var(--SmartThemeTextColor, #eee) !important;
+}
+
+#dc-storage-popup * {
+    color: inherit;
+}
+
 #dc-harmony-popup {
     font-size: 0.85em;
 }
@@ -166,6 +188,12 @@
 
 @media (max-width: 768px) {
     #dc-stats-popup {
+        max-width: 95vw !important;
+        max-height: 85vh !important;
+        padding: 12px !important;
+    }
+
+    #dc-storage-popup {
         max-width: 95vw !important;
         max-height: 85vh !important;
         padding: 12px !important;
