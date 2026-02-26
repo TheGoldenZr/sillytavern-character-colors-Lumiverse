@@ -34,7 +34,6 @@
     }
 
     function normalizeToggleSettings() {
-        settings.autoBrightness = normalizeBoolean(settings.autoBrightness, false);
         settings.autoRecolor = normalizeBoolean(settings.autoRecolor, true);
     }
 
@@ -106,7 +105,7 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, autoBrightness: true, colorSchemaVersion: COLOR_SCHEMA_VERSION };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, colorSchemaVersion: COLOR_SCHEMA_VERSION };
     let lastCharKey = null;
     let lastProcessedMessageSignature = '';
     // Phase 6A: Batch selection state
@@ -266,14 +265,24 @@
         if (historyIndex < colorHistory.length - 1) { historyIndex++; characterColors = JSON.parse(colorHistory[historyIndex]); saveData(); updateCharList(); injectPrompt(); }
     }
 
-    function showUndoToast(message) {
+    function createRestoreSnapshot() {
+        const colorsSnapshot = JSON.stringify(characterColors);
+        const keysSnapshot = [...selectedKeys];
+        return function() {
+            characterColors = JSON.parse(colorsSnapshot);
+            selectedKeys = new Set(keysSnapshot);
+            saveHistory(); saveData(); updateCharList(); injectPrompt();
+        };
+    }
+
+    function showUndoToast(message, restoreFn) {
         if (!toastr?.info) return;
         toastr.info(`${message} Click this toast to undo.`, 'Undo Available', {
             closeButton: true,
             tapToDismiss: false,
             timeOut: 7000,
             extendedTimeOut: 3000,
-            onclick: () => undo()
+            onclick: typeof restoreFn === 'function' ? restoreFn : () => undo()
         });
     }
 
@@ -1129,7 +1138,7 @@
         settings.colorSchemaVersion = COLOR_SCHEMA_VERSION;
         syncAllEffectiveColors();
         localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
-        localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness, autoBrightness: settings.autoBrightness }));
+        localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness }));
     }
 
     // Phase 1B: Deduplicated global settings load via applyGlobal helper
@@ -1139,7 +1148,6 @@
         if (g.themeMode !== undefined) settings.themeMode = g.themeMode;
         if (g.colorTheme !== undefined) settings.colorTheme = g.colorTheme;
         if (g.brightness !== undefined) settings.brightness = g.brightness;
-        if (g.autoBrightness !== undefined) settings.autoBrightness = g.autoBrightness;
     }
 
     function migrateColorSchemaIfNeeded() {
@@ -1837,16 +1845,13 @@
             clearTimeout(brightnessRecolorTimer);
             brightnessRecolorTimer = null;
         }
-        normalizeToggleSettings();
-        if (settings.autoBrightness !== true) return;
         if (immediate) {
             recolorAllMessages();
             return;
         }
         brightnessRecolorTimer = setTimeout(() => {
             brightnessRecolorTimer = null;
-            normalizeToggleSettings();
-            if (settings.autoBrightness === true) recolorAllMessages();
+            recolorAllMessages();
         }, 220);
     }
 
@@ -2157,7 +2162,6 @@
         if ($('dc-autoscan-new')) $('dc-autoscan-new').checked = settings.autoScanNewMessages !== false;
         if ($('dc-auto-lock')) $('dc-auto-lock').checked = settings.autoLockDetected !== false;
         if ($('dc-auto-recolor')) $('dc-auto-recolor').checked = settings.autoRecolor !== false;
-        if ($('dc-auto-brightness')) $('dc-auto-brightness').checked = settings.autoBrightness === true;
         if ($('dc-right-click')) $('dc-right-click').checked = settings.enableRightClick;
         if ($('dc-legend')) $('dc-legend').checked = settings.showLegend;
         if ($('dc-disable-narration')) $('dc-disable-narration').checked = settings.disableNarration !== false;
@@ -2203,7 +2207,6 @@
                         </div>
                         <label class="checkbox_label"><input type="checkbox" id="dc-overwrite-existing" data-help="Allow replacing an existing custom palette with the same name."><span>Overwrite existing custom palette</span></label>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Bright:</label><input type="range" id="dc-brightness" min="-100" max="100" value="0" style="flex:1;" data-help="Shift effective color lightness up or down. Does not change stored base colors."><span id="dc-bright-val">0</span></div>
-                        <label class="checkbox_label"><input type="checkbox" id="dc-auto-brightness" data-help="Automatically recolor generated message colors based on brightness slider changes."><span>Auto-update generated colors from Brightness slider</span></label>
                     </div>
                 </details>
                 <details class="dc-section">
@@ -2285,7 +2288,6 @@
         $('dc-autoscan-new').onchange = e => { settings.autoScanNewMessages = e.target.checked; saveData(); };
         $('dc-auto-lock').onchange = e => { settings.autoLockDetected = e.target.checked; saveData(); };
         $('dc-auto-recolor').onchange = e => { settings.autoRecolor = e.target.checked; saveData(); };
-        $('dc-auto-brightness').onchange = e => { settings.autoBrightness = e.target.checked; saveData(); };
         $('dc-right-click').onchange = e => { settings.enableRightClick = e.target.checked; saveData(); };
         $('dc-legend').onchange = e => { settings.showLegend = e.target.checked; saveData(); updateLegend(); };
         $('dc-disable-narration').onchange = e => { settings.disableNarration = e.target.checked; saveData(); injectPrompt(); };
@@ -2307,10 +2309,11 @@
         $('dc-clear').onclick = () => {
             const count = Object.keys(characterColors).length;
             if (!count) { toastr?.info?.('No characters to clear'); return; }
+            const restore = createRestoreSnapshot();
             characterColors = {};
             selectedKeys.clear();
             saveHistory(); saveData(); injectPrompt(); updateCharList();
-            showUndoToast(`Cleared ${count} character${count !== 1 ? 's' : ''}.`);
+            showUndoToast(`Cleared ${count} character${count !== 1 ? 's' : ''}.`, restore);
         };
         $('dc-stats').onclick = showStatsPopup;
         $('dc-recolor').onclick = () => {
@@ -2361,23 +2364,26 @@
         $('dc-export-png').onclick = exportLegendPng;
         $('dc-import-file').onchange = e => { if (e.target.files[0]) importColors(e.target.files[0]); };
         $('dc-del-locked').onclick = () => {
+            const restore = createRestoreSnapshot();
             let count = 0;
             Object.keys(characterColors).forEach(k => { if (characterColors[k].locked) { delete characterColors[k]; selectedKeys.delete(k); count++; } });
             if (!count) { toastr?.info?.('No locked characters to delete'); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
-            showUndoToast(`Deleted ${count} locked character${count !== 1 ? 's' : ''}.`);
+            showUndoToast(`Deleted ${count} locked character${count !== 1 ? 's' : ''}.`, restore);
         };
         $('dc-del-unlocked').onclick = () => {
+            const restore = createRestoreSnapshot();
             let count = 0;
             Object.keys(characterColors).forEach(k => { if (!characterColors[k].locked) { delete characterColors[k]; selectedKeys.delete(k); count++; } });
             if (!count) { toastr?.info?.('No unlocked characters to delete'); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
-            showUndoToast(`Deleted ${count} unlocked character${count !== 1 ? 's' : ''}.`);
+            showUndoToast(`Deleted ${count} unlocked character${count !== 1 ? 's' : ''}.`, restore);
         };
         $('dc-del-least').onclick = () => {
             const thresholdField = $('dc-del-least-threshold');
             const min = parseInt(thresholdField?.value || '3', 10);
             if (isNaN(min) || min < 0) { toastr?.warning?.('Invalid threshold'); return; }
+            const restore = createRestoreSnapshot();
             let count = 0;
             Object.keys(characterColors).forEach(k => {
                 if ((characterColors[k].dialogueCount || 0) < min) {
@@ -2386,9 +2392,10 @@
             });
             if (!count) { toastr?.info?.(`No characters below ${min} dialogues`); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
-            showUndoToast(`Deleted ${count} character${count !== 1 ? 's' : ''} with <${min} dialogues.`);
+            showUndoToast(`Deleted ${count} character${count !== 1 ? 's' : ''} with <${min} dialogues.`, restore);
         };
         $('dc-del-dupes').onclick = () => {
+            const restore = createRestoreSnapshot();
             const colorGroups = {};
             Object.entries(characterColors).forEach(([k, v]) => {
                 const c = getEntryEffectiveColor(v).toLowerCase();
@@ -2406,7 +2413,7 @@
             });
             if (!deleted) { toastr?.info?.('No duplicate colors found'); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
-            showUndoToast(`Deleted ${deleted} duplicate-color character${deleted !== 1 ? 's' : ''}.`);
+            showUndoToast(`Deleted ${deleted} duplicate-color character${deleted !== 1 ? 's' : ''}.`, restore);
         };
         $('dc-lock-all').onclick = () => {
             let count = 0;
@@ -2432,6 +2439,7 @@
         };
         $('dc-reset').onclick = () => {
             if (!confirm('Reset all colors?')) return;
+            const restore = createRestoreSnapshot();
             let changed = 0;
             Object.values(characterColors).forEach(c => {
                 if (!c.locked) {
@@ -2441,7 +2449,7 @@
             });
             if (!changed) { toastr?.info?.('No unlocked colors to reset'); return; }
             saveHistory(); saveData(); updateCharList(); injectPrompt();
-            showUndoToast(`Reset ${changed} unlocked color${changed !== 1 ? 's' : ''}.`);
+            showUndoToast(`Reset ${changed} unlocked color${changed !== 1 ? 's' : ''}.`, restore);
         };
         $('dc-search').oninput = e => { searchTerm = e.target.value; updateCharList(); };
         $('dc-sort').onchange = e => { sortMode = e.target.value; updateCharList(); };
@@ -2453,11 +2461,12 @@
         $('dc-batch-none').onclick = () => { selectedKeys.clear(); updateCharList(); };
         $('dc-batch-del').onclick = () => {
             if (!selectedKeys.size) return;
+            const restore = createRestoreSnapshot();
             const count = selectedKeys.size;
             selectedKeys.forEach(k => delete characterColors[k]);
             selectedKeys.clear();
             saveHistory(); saveData(); injectPrompt(); updateCharList();
-            showUndoToast(`Deleted ${count} selected character${count !== 1 ? 's' : ''}.`);
+            showUndoToast(`Deleted ${count} selected character${count !== 1 ? 's' : ''}.`, restore);
         };
         $('dc-batch-lock').onclick = () => {
             let changed = false;

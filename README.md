@@ -26,7 +26,6 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 - **Color presets** - Save, load, and delete presets via dropdown UI
 - **Recolor messages** - Rewrite all existing message colors to match current assignments after changing a character's color
 - **Auto-recolor** - Automatically recolor + reload chat when colors change via picker, harmony popup, regen, or theme flip (default: on)
-- **Auto-brightness** - Automatically recolor messages when the brightness slider changes (default: off)
 - **Smart color suggestions** - Auto-suggests colors based on character names (e.g., "Rose" → pink)
 - **Color harmony** - Double-click a color input to see complementary, triadic, and analogous suggestions
 - **Custom palettes** - Generate palettes from words (optionally LLM-enhanced) or save your current character colors
@@ -74,10 +73,10 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
-## What's New in 3.1.5
+## What's New in 3.1.6
 
-- Fixed `Auto-brightness` toggle persistence so enabling/disabling it is saved and restored reliably.
-- Brightness offset now applies only when `Auto-brightness` is enabled, so non-zero brightness values no longer auto-adjust colors when the toggle is off.
+- **Brightness slider always auto-recolors** — removed the `Auto-brightness` toggle; moving the brightness slider now unconditionally refreshes chat colors for unlocked characters.
+- **Reliable undo toasts** — destructive actions (Clear, Delete, Reset, etc.) now capture a snapshot before mutating, so clicking the undo toast always restores correctly even if chat events reset the history stack.
 
 ## Installation
 
@@ -118,8 +117,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **Palette name** | Name for the custom palette to create or save |
 | **Palette notes** | Optional notes that guide generated palette style |
 | **Overwrite existing** | Allow replacing an existing custom palette with the same name |
-| **Brightness** | Shift effective color lightness up/down (does not change stored base colors) |
-| **Auto-brightness** | Automatically recolor messages when the brightness slider changes (default: on) |
+| **Brightness** | Shift effective color lightness up/down — automatically recolors chat for unlocked characters |
 
 ### Behavior Section
 | Control | Function |
