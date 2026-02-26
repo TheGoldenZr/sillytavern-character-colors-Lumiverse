@@ -1137,8 +1137,12 @@
         characterColors = normalizeCharacterColors(characterColors);
         settings.colorSchemaVersion = COLOR_SCHEMA_VERSION;
         syncAllEffectiveColors();
-        localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
-        localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness }));
+        try {
+            localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
+            localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness }));
+        } catch (e) {
+            toastr?.warning?.('Storage full — could not save color data. Try clearing unused chats or characters.');
+        }
     }
 
     // Phase 1B: Deduplicated global settings load via applyGlobal helper
