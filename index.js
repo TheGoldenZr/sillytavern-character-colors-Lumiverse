@@ -105,7 +105,7 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, colorSchemaVersion: COLOR_SCHEMA_VERSION };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, disableToasts: false, colorSchemaVersion: COLOR_SCHEMA_VERSION };
     let lastCharKey = null;
     let lastProcessedMessageSignature = '';
     // Phase 6A: Batch selection state
@@ -156,6 +156,7 @@
                 { label: 'Disable narration', key: 'dc-disable-narration' },
                 { label: 'Share global', key: 'dc-share-global' },
                 { label: 'LLM palette', key: 'dc-llm-palette' },
+                { label: 'Disable toasts', key: 'dc-disable-toasts' },
                 { label: 'Narrator color', key: 'dc-narrator' },
                 { label: 'Thought symbols', key: 'dc-thought-symbols' },
                 { label: 'Injection depth', key: 'dc-prompt-depth' }
@@ -276,6 +277,7 @@
     }
 
     function showUndoToast(message, restoreFn) {
+        if (settings.disableToasts) return;
         if (!toastr?.info) return;
         toastr.info(`${message} Click this toast to undo.`, 'Undo Available', {
             closeButton: true,
@@ -285,6 +287,13 @@
             onclick: typeof restoreFn === 'function' ? restoreFn : () => undo()
         });
     }
+
+    const toast = {
+        info:    (...a) => !settings.disableToasts && toastr?.info?.(...a),
+        success: (...a) => !settings.disableToasts && toastr?.success?.(...a),
+        warning: (...a) => !settings.disableToasts && toastr?.warning?.(...a),
+        error:   (...a) => toastr?.error?.(...a),
+    };
 
     function getInlinePaletteInputs() {
         const name = document.getElementById('dc-palette-name-input')?.value?.trim() || '';
@@ -373,14 +382,14 @@
             }
         }
         saveHistory(); saveData(); updateCharList(); injectPrompt();
-        toastr?.success?.('Colors regenerated');
+        toast.success('Colors regenerated');
         if (settings.autoRecolor) recolorAllMessages();
     }
 
     // Phase 4B: Improved conflict resolution feedback listing pairs
     function autoResolveConflicts() {
         const conflicts = checkColorConflicts();
-        if (!conflicts.length) { toastr?.info?.('No conflicts found'); return; }
+        if (!conflicts.length) { toast.info('No conflicts found'); return; }
         const fixedPairs = [];
         conflicts.forEach(([name1, name2]) => {
             const key1 = name1.toLowerCase(), key2 = name2.toLowerCase();
@@ -393,12 +402,12 @@
             }
         });
         saveHistory(); saveData(); updateCharList(); injectPrompt();
-        toastr?.success?.(`Fixed: ${fixedPairs.join('; ')}`);
+        toast.success(`Fixed: ${fixedPairs.join('; ')}`);
     }
 
     function flipColorsForTheme() {
         const entries = Object.entries(characterColors);
-        if (!entries.length) { toastr?.info?.('No characters to flip'); return; }
+        if (!entries.length) { toast.info('No characters to flip'); return; }
         for (const [, char] of entries) {
             const [h, s, l] = hexToHsl(getEntryEffectiveColor(char));
             const newL = 100 - l;
@@ -406,7 +415,7 @@
             setEntryFromEffectiveColor(char, hslToHex(h, s, clampedL));
         }
         saveHistory(); saveData(); updateCharList(); injectPrompt();
-        toastr?.success?.('Colors flipped for theme switch');
+        toast.success('Colors flipped for theme switch');
         if (settings.autoRecolor) recolorAllMessages();
     }
 
@@ -414,7 +423,7 @@
     function saveColorPreset() {
         const nameInput = document.getElementById('dc-preset-name');
         const name = nameInput?.value?.trim();
-        if (!name) { toastr?.warning?.('Enter a preset name'); return; }
+        if (!name) { toast.warning('Enter a preset name'); return; }
         const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
         presets[name] = Object.entries(characterColors).map(([, v]) => ({
             name: String(v.name ?? '').trim(),
@@ -428,17 +437,17 @@
         localStorage.setItem('dc_presets', JSON.stringify(presets));
         nameInput.value = '';
         refreshPresetDropdown();
-        toastr?.success?.(`Preset "${name}" saved`);
+        toast.success(`Preset "${name}" saved`);
     }
 
     function loadColorPreset() {
         const select = document.getElementById('dc-preset-select');
         const name = select?.value;
-        if (!name) { toastr?.warning?.('Select a preset first'); return; }
+        if (!name) { toast.warning('Select a preset first'); return; }
         const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
-        if (!presets[name]) { toastr?.error?.('Preset not found'); return; }
+        if (!presets[name]) { toast.error('Preset not found'); return; }
         const presetData = presets[name];
-        if (!Array.isArray(presetData)) { toastr?.error?.('Preset is invalid'); return; }
+        if (!Array.isArray(presetData)) { toast.error('Preset is invalid'); return; }
         let changed = false;
         for (const p of presetData) {
             const normalized = normalizeCharacterEntry(p, p?.name);
@@ -453,18 +462,18 @@
         }
         if (changed) saveHistory();
         saveData(); updateCharList(); injectPrompt();
-        toastr?.success?.(`Preset "${name}" loaded`);
+        toast.success(`Preset "${name}" loaded`);
     }
 
     function deleteColorPreset() {
         const select = document.getElementById('dc-preset-select');
         const name = select?.value;
-        if (!name) { toastr?.warning?.('Select a preset first'); return; }
+        if (!name) { toast.warning('Select a preset first'); return; }
         const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
         delete presets[name];
         localStorage.setItem('dc_presets', JSON.stringify(presets));
         refreshPresetDropdown();
-        toastr?.success?.(`Preset "${name}" deleted`);
+        toast.success(`Preset "${name}" deleted`);
     }
 
     function refreshPresetDropdown() {
@@ -764,13 +773,13 @@
         const inlineInputs = getInlinePaletteInputs();
         const name = String(inputName || inlineInputs.name || '').trim();
         if (!name) {
-            toastr?.warning?.('Enter a palette name first');
+            toast.warning('Enter a palette name first');
             return;
         }
         const notes = String(inputNotes || inlineInputs.notes || '');
         const customs = getCustomPalettes();
         if (customs[name] && !shouldOverwritePalette()) {
-            toastr?.warning?.(`Custom palette "${name}" exists. Enable "Overwrite existing" to replace it.`);
+            toast.warning(`Custom palette "${name}" exists. Enable "Overwrite existing" to replace it.`);
             return;
         }
 
@@ -785,7 +794,7 @@
                 source = 'llm';
             } else {
                 source = 'hybrid-fallback';
-                toastr?.info?.('LLM enhancement unavailable, used local palette');
+                toast.info('LLM enhancement unavailable, used local palette');
             }
         }
 
@@ -794,32 +803,32 @@
         setCustomPaletteMetaEntry(name, { source, notes: notes.trim(), createdAt: Date.now() });
         refreshPaletteDropdown();
         const label = source === 'llm' ? 'LLM-enhanced' : (source === 'hybrid-fallback' ? 'local fallback' : 'local');
-        toastr?.success?.(`Custom palette "${name}" saved (${label})`);
+        toast.success(`Custom palette "${name}" saved (${label})`);
     }
 
     function saveCustomPalette() {
         const { name } = getInlinePaletteInputs();
         if (!name) {
-            toastr?.warning?.('Enter a palette name first');
+            toast.warning('Enter a palette name first');
             return;
         }
         const colors = [...new Set(Object.values(characterColors).map(c => normalizeHexColor(c.color, null)).filter(Boolean))];
-        if (!colors.length) { toastr?.warning?.('No characters to save palette from'); return; }
+        if (!colors.length) { toast.warning('No characters to save palette from'); return; }
         const customs = getCustomPalettes();
         if (customs[name] && !shouldOverwritePalette()) {
-            toastr?.warning?.(`Custom palette "${name}" exists. Enable "Overwrite existing" to replace it.`);
+            toast.warning(`Custom palette "${name}" exists. Enable "Overwrite existing" to replace it.`);
             return;
         }
         customs[name] = colors;
         localStorage.setItem(CUSTOM_PALETTE_KEY, JSON.stringify(customs));
         setCustomPaletteMetaEntry(name, { source: 'heuristic', notes: '', createdAt: Date.now() });
         refreshPaletteDropdown();
-        toastr?.success?.(`Custom palette "${name}" saved`);
+        toast.success(`Custom palette "${name}" saved`);
     }
 
     function deleteCustomPalette() {
         const select = document.getElementById('dc-palette');
-        if (!select?.value?.startsWith('custom:')) { toastr?.warning?.('Select a custom palette first'); return; }
+        if (!select?.value?.startsWith('custom:')) { toast.warning('Select a custom palette first'); return; }
         const paletteName = select.value.slice(7);
         const customs = getCustomPalettes();
         delete customs[paletteName];
@@ -830,7 +839,7 @@
         invalidateThemeCache();
         refreshPaletteDropdown();
         injectPrompt();
-        toastr?.success?.(`Custom palette "${paletteName}" deleted`);
+        toast.success(`Custom palette "${paletteName}" deleted`);
     }
 
     function refreshPaletteDropdown() {
@@ -1031,7 +1040,7 @@
     // Phase 4A: Theme-aware PNG export
     function exportLegendPng() {
         const entries = Object.entries(characterColors);
-        if (!entries.length) { toastr?.info?.('No characters to export'); return; }
+        if (!entries.length) { toast.info('No characters to export'); return; }
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         const lineHeight = 24, padding = 16, dotSize = 10;
@@ -1055,7 +1064,7 @@
         a.href = canvas.toDataURL('image/png');
         a.download = `dialogue-colors-legend-${Date.now()}.png`;
         a.click();
-        toastr?.success?.('Legend exported');
+        toast.success('Legend exported');
     }
 
     // Right-click and long-press context menu for messages
@@ -1103,7 +1112,7 @@
                         characterColors[key] = { color: applyThemeReadabilityAndBrightness(baseColor), baseColor, name, locked: false, aliases: [], style: '', dialogueCount: 1, group: '' };
                     }
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
-                    toastr?.success?.(`Assigned to ${name}`);
+                    toast.success(`Assigned to ${name}`);
                 }
                 menu.remove();
             };
@@ -1141,7 +1150,7 @@
             localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
             localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness }));
         } catch (e) {
-            toastr?.warning?.('Storage full — could not save color data. Try clearing unused chats or characters.');
+            toast.warning('Storage full — could not save color data. Try clearing unused chats or characters.');
         }
     }
 
@@ -1243,9 +1252,9 @@
                 normalizeToggleSettings();
                 migrateColorSchemaIfNeeded();
                 saveHistory(); saveData(); updateCharList(); injectPrompt();
-                toastr?.success?.('Imported!');
+                toast.success('Imported!');
             } catch {
-                toastr?.error?.('Invalid file');
+                toast.error('Invalid file');
             }
         };
         reader.readAsText(file);
@@ -1511,7 +1520,7 @@
 
     function showStatsPopup() {
         const stats = getDialogueStats();
-        if (!stats.length) { toastr?.info?.('No dialogue data'); return; }
+        if (!stats.length) { toast.info('No dialogue data'); return; }
         const maxCount = Math.max(...stats.map(s => s.count), 1);
         let html = stats.map(s => `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="width:60px;color:${s.color}">${escapeHtml(s.name)}</span><div style="flex:1;height:12px;background:var(--SmartThemeBlurTintColor);border-radius:3px;overflow:hidden;"><div style="width:${s.count / maxCount * 100}%;height:100%;background:${s.color};"></div></div><span style="width:40px;text-align:right;font-size:0.8em;">${s.count} (${s.pct}%)</span></div>`).join('');
         const popup = document.createElement('div');
@@ -1530,7 +1539,7 @@
             const k = localStorage.key(i);
             if ((k.startsWith('dc_char_') || k === 'dc_global') && k !== 'dc_global_settings') keys.push(k);
         }
-        if (!keys.length) { toastr?.info?.('No stored color data found'); return; }
+        if (!keys.length) { toast.info('No stored color data found'); return; }
 
         const entries = keys.map(k => {
             const raw = localStorage.getItem(k);
@@ -1565,14 +1574,14 @@
         popup.querySelector('.dc-storage-close').onclick = () => { popup.remove(); document.removeEventListener('mousedown', closePopup); };
         popup.querySelector('.dc-storage-clear').onclick = () => {
             const selected = [...checks()].filter(c => c.checked).map(c => c.dataset.key);
-            if (!selected.length) { toastr?.info?.('Nothing selected'); return; }
+            if (!selected.length) { toast.info('Nothing selected'); return; }
             if (!confirm(`Clear ${selected.length} stored color data entr${selected.length === 1 ? 'y' : 'ies'}?`)) return;
             let clearedCurrent = false;
             selected.forEach(k => { if (k === currentKey) clearedCurrent = true; localStorage.removeItem(k); });
             popup.remove();
             document.removeEventListener('mousedown', closePopup);
             if (clearedCurrent) { characterColors = {}; selectedKeys.clear(); saveHistory(); updateCharList(); injectPrompt(); }
-            toastr?.success?.(`Cleared ${selected.length} entr${selected.length === 1 ? 'y' : 'ies'}.`);
+            toast.success(`Cleared ${selected.length} entr${selected.length === 1 ? 'y' : 'ies'}.`);
         };
 
         document.body.appendChild(popup);
@@ -1584,21 +1593,21 @@
         try {
             const ctx = getContext();
             const char = ctx?.characters?.[ctx?.characterId];
-            if (!char) { toastr?.error?.('No character loaded'); return; }
+            if (!char) { toast.error('No character loaded'); return; }
             if (!char.data) char.data = {};
             if (!char.data.extensions) char.data.extensions = {};
             char.data.extensions.dialogueColors = { colors: normalizeCharacterColors(characterColors), settings };
             saveData();
             saveCharacterDebounced?.();
-            toastr?.success?.('Saved to card');
-        } catch { toastr?.error?.('Failed to save to card'); }
+            toast.success('Saved to card');
+        } catch { toast.error('Failed to save to card'); }
     }
 
     function loadFromCard() {
         try {
             const ctx = getContext();
             const charId = ctx?.characterId;
-            if (charId === undefined) { toastr?.error?.('No character loaded'); return; }
+            if (charId === undefined) { toast.error('No character loaded'); return; }
 
             getCharacters?.().then(() => {
                 const char = ctx?.characters?.[charId];
@@ -1614,12 +1623,12 @@
                     normalizeToggleSettings();
                     migrateColorSchemaIfNeeded();
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
-                    toastr?.success?.('Loaded from card');
+                    toast.success('Loaded from card');
                 } else {
-                    toastr?.info?.('No saved colors in card');
+                    toast.info('No saved colors in card');
                 }
-            }).catch(() => toastr?.error?.('Failed to reload character'));
-        } catch { toastr?.error?.('Failed to load from card'); }
+            }).catch(() => toast.error('Failed to reload character'));
+        } catch { toast.error('Failed to load from card'); }
     }
 
     function tryLoadFromCard() {
@@ -1737,8 +1746,8 @@
         saveHistory(); saveData(); updateCharList(); injectPrompt();
         stripColorBlocksFromDisplay();
         const conflicts = checkColorConflicts();
-        if (conflicts.length) toastr?.warning?.(`Similar: ${conflicts.slice(0, 3).map(c => c.join(' & ')).join(', ')}`);
-        toastr?.info?.(`Found ${Object.keys(characterColors).length} characters`);
+        if (conflicts.length) toast.warning(`Similar: ${conflicts.slice(0, 3).map(c => c.join(' & ')).join(', ')}`);
+        toast.info(`Found ${Object.keys(characterColors).length} characters`);
     }
 
     function setRecolorButtonBusy(isBusyState) {
@@ -1757,8 +1766,8 @@
     async function recolorAllMessages() {
         const ctx = getContext();
         const chat = ctx?.chat || [];
-        if (!chat.length) { toastr?.info?.('No messages to recolor.'); return; }
-        if (isRecoloring) { toastr?.info?.('Recolor is already running.'); return; }
+        if (!chat.length) { toast.info('No messages to recolor.'); return; }
+        if (isRecoloring) { toast.info('Recolor is already running.'); return; }
         isRecoloring = true;
         setRecolorButtonBusy(true);
 
@@ -1884,16 +1893,16 @@
             if (recoloredCount > 0) {
                 if (typeof ctx?.saveChat === 'function') await ctx.saveChat();
                 if (typeof ctx?.reloadCurrentChat === 'function') {
-                    toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Reloading chat...`);
+                    toast.info(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Reloading chat...`);
                     await ctx.reloadCurrentChat();
                 } else if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
-                    toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Refreshing chat...`);
+                    toast.info(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}. Refreshing chat...`);
                     eventSource.emit(event_types.CHAT_CHANGED);
                 } else {
-                    toastr?.info?.(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}.`);
+                    toast.info(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}.`);
                 }
             } else {
-                toastr?.info?.('No messages needed recoloring.');
+                toast.info('No messages needed recoloring.');
             }
         } finally {
             isRecoloring = false;
@@ -2020,7 +2029,7 @@
                 if (!settings.autoRecolor) return;
                 if (!autoRecolorHintShown) {
                     autoRecolorHintShown = true;
-                    toastr?.info?.('Auto-recolor is enabled; color changes will update chat automatically.');
+                    toast.info('Auto-recolor is enabled; color changes will update chat automatically.');
                 }
                 recolorAllMessages();
             };
@@ -2041,7 +2050,7 @@
         });
         list.querySelectorAll('.dc-swap').forEach(b => {
             b.onclick = () => {
-                if (!swapMode) { swapMode = b.dataset.key; updateCharList(); toastr?.info?.('Click another character to swap'); }
+                if (!swapMode) { swapMode = b.dataset.key; updateCharList(); toast.info('Click another character to swap'); }
                 else if (swapMode === b.dataset.key) { swapMode = null; updateCharList(); }
                 else { swapColors(swapMode, b.dataset.key); swapMode = null; }
             };
@@ -2208,7 +2217,7 @@
             const key = char?.name?.toLowerCase();
             if (key && !characterColors[key]) {
                 addCharacter(char.name);
-                toastr?.success?.(`Added ${char.name}`);
+                toast.success(`Added ${char.name}`);
             }
         } catch { }
     }
@@ -2229,6 +2238,7 @@
         if ($('dc-share-global')) $('dc-share-global').checked = settings.shareColorsGlobally || false;
         if ($('dc-css-effects')) $('dc-css-effects').checked = settings.cssEffects || false;
         if ($('dc-llm-palette')) $('dc-llm-palette').checked = settings.llmEnhanceCustomPalettes !== false;
+        if ($('dc-disable-toasts')) $('dc-disable-toasts').checked = settings.disableToasts || false;
         if ($('dc-theme')) $('dc-theme').value = settings.themeMode;
         if ($('dc-brightness')) { $('dc-brightness').value = settings.brightness || 0; }
         if ($('dc-bright-val')) $('dc-bright-val').textContent = settings.brightness || 0;
@@ -2281,6 +2291,7 @@
                         <label class="checkbox_label"><input type="checkbox" id="dc-disable-narration" data-help="Skip narrator color assignment in generated prompt instructions."><span>Disable narration coloring</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-share-global" data-help="Use one shared color table for all chats instead of per-chat storage."><span>Share colors across all chats</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-llm-palette" data-help="Use LLM assistance to refine generated custom palettes."><span>Enhance generated palettes with LLM</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="dc-disable-toasts" data-help="Suppress all pop-up toast notifications from this extension."><span>Disable toast notifications</span></label>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;" data-help="Set narrator fallback color used when narration coloring is enabled."><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Clear custom narrator color and return to default.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;" data-help="Symbols used to detect and color inner-thought dialogue."><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Append another thought symbol to the list.">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Remove all thought symbols.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;" data-help="How far from the chat end the system color prompt is injected."></div>
@@ -2356,6 +2367,7 @@
         $('dc-share-global').onchange = e => { settings.shareColorsGlobally = e.target.checked; saveData(); loadData(); updateCharList(); injectPrompt(); };
         $('dc-css-effects').onchange = e => { settings.cssEffects = e.target.checked; saveData(); injectPrompt(); };
         $('dc-llm-palette').onchange = e => { settings.llmEnhanceCustomPalettes = e.target.checked; saveData(); };
+        $('dc-disable-toasts').onchange = e => { settings.disableToasts = e.target.checked; saveData(); };
         $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); if (settings.autoRecolor) recolorAllMessages(); };
         $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
         $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); triggerBrightnessAutoRecolor(false); };
@@ -2370,7 +2382,7 @@
         $('dc-scan').onclick = scanAllMessages;
         $('dc-clear').onclick = () => {
             const count = Object.keys(characterColors).length;
-            if (!count) { toastr?.info?.('No characters to clear'); return; }
+            if (!count) { toast.info('No characters to clear'); return; }
             const restore = createRestoreSnapshot();
             characterColors = {};
             selectedKeys.clear();
@@ -2401,7 +2413,7 @@
             try {
                 const ctx = getContext();
                 const char = ctx?.characters?.[ctx?.characterId];
-                if (!char?.avatar) { toastr?.info?.('No avatar found'); return; }
+                if (!char?.avatar) { toast.info('No avatar found'); return; }
                 const avatarUrl = `/characters/${encodeURIComponent(char.avatar)}`;
                 const color = await extractAvatarColor(avatarUrl);
                 if (color) {
@@ -2412,11 +2424,11 @@
                         characterColors[key] = { color: applyThemeReadabilityAndBrightness(color), baseColor: normalizeHexColor(color), name: char.name, locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
                     }
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
-                    toastr?.success?.(`Set ${char.name} to ${color}`);
+                    toast.success(`Set ${char.name} to ${color}`);
                 } else {
-                    toastr?.error?.('Could not extract color');
+                    toast.error('Could not extract color');
                 }
-            } catch (e) { toastr?.error?.('Failed to extract avatar color'); }
+            } catch (e) { toast.error('Failed to extract avatar color'); }
         };
         $('dc-save-card').onclick = saveToCard;
         $('dc-load-card').onclick = loadFromCard;
@@ -2429,7 +2441,7 @@
             const restore = createRestoreSnapshot();
             let count = 0;
             Object.keys(characterColors).forEach(k => { if (characterColors[k].locked) { delete characterColors[k]; selectedKeys.delete(k); count++; } });
-            if (!count) { toastr?.info?.('No locked characters to delete'); return; }
+            if (!count) { toast.info('No locked characters to delete'); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
             showUndoToast(`Deleted ${count} locked character${count !== 1 ? 's' : ''}.`, restore);
         };
@@ -2437,14 +2449,14 @@
             const restore = createRestoreSnapshot();
             let count = 0;
             Object.keys(characterColors).forEach(k => { if (!characterColors[k].locked) { delete characterColors[k]; selectedKeys.delete(k); count++; } });
-            if (!count) { toastr?.info?.('No unlocked characters to delete'); return; }
+            if (!count) { toast.info('No unlocked characters to delete'); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
             showUndoToast(`Deleted ${count} unlocked character${count !== 1 ? 's' : ''}.`, restore);
         };
         $('dc-del-least').onclick = () => {
             const thresholdField = $('dc-del-least-threshold');
             const min = parseInt(thresholdField?.value || '3', 10);
-            if (isNaN(min) || min < 0) { toastr?.warning?.('Invalid threshold'); return; }
+            if (isNaN(min) || min < 0) { toast.warning('Invalid threshold'); return; }
             const restore = createRestoreSnapshot();
             let count = 0;
             Object.keys(characterColors).forEach(k => {
@@ -2452,7 +2464,7 @@
                     delete characterColors[k]; selectedKeys.delete(k); count++;
                 }
             });
-            if (!count) { toastr?.info?.(`No characters below ${min} dialogues`); return; }
+            if (!count) { toast.info(`No characters below ${min} dialogues`); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
             showUndoToast(`Deleted ${count} character${count !== 1 ? 's' : ''} with <${min} dialogues.`, restore);
         };
@@ -2473,7 +2485,7 @@
                     });
                 }
             });
-            if (!deleted) { toastr?.info?.('No duplicate colors found'); return; }
+            if (!deleted) { toast.info('No duplicate colors found'); return; }
             saveHistory(); saveData(); injectPrompt(); updateCharList();
             showUndoToast(`Deleted ${deleted} duplicate-color character${deleted !== 1 ? 's' : ''}.`, restore);
         };
@@ -2487,7 +2499,7 @@
                 }
             });
             if (count) saveHistory();
-            saveData(); updateCharList(); toastr?.info?.(`Locked ${count} characters`);
+            saveData(); updateCharList(); toast.info(`Locked ${count} characters`);
         };
         $('dc-unlock-all').onclick = () => {
             let count = 0;
@@ -2498,7 +2510,7 @@
                 }
             });
             if (count) saveHistory();
-            saveData(); updateCharList(); toastr?.info?.(`Unlocked ${count} characters`);
+            saveData(); updateCharList(); toast.info(`Unlocked ${count} characters`);
         };
         $('dc-reset').onclick = () => {
             if (!confirm('Reset all colors?')) return;
@@ -2510,7 +2522,7 @@
                     changed++;
                 }
             });
-            if (!changed) { toastr?.info?.('No unlocked colors to reset'); return; }
+            if (!changed) { toast.info('No unlocked colors to reset'); return; }
             saveHistory(); saveData(); updateCharList(); injectPrompt();
             showUndoToast(`Reset ${changed} unlocked color${changed !== 1 ? 's' : ''}.`, restore);
         };
@@ -2540,7 +2552,7 @@
                 }
             });
             if (changed) saveHistory();
-            saveData(); updateCharList(); toastr?.info?.('Locked selected characters');
+            saveData(); updateCharList(); toast.info('Locked selected characters');
         };
         $('dc-batch-unlock').onclick = () => {
             let changed = false;
@@ -2551,10 +2563,10 @@
                 }
             });
             if (changed) saveHistory();
-            saveData(); updateCharList(); toastr?.info?.('Unlocked selected characters');
+            saveData(); updateCharList(); toast.info('Unlocked selected characters');
         };
         $('dc-batch-style-apply').onclick = () => {
-            if (!selectedKeys.size) { toastr?.info?.('Select at least one character first'); return; }
+            if (!selectedKeys.size) { toast.info('Select at least one character first'); return; }
             const validStyle = $('dc-batch-style-select')?.value || '';
             let changed = false;
             selectedKeys.forEach(k => {
@@ -2563,7 +2575,7 @@
                     changed = true;
                 }
             });
-            if (!changed) { toastr?.info?.('Selected characters already use that style'); return; }
+            if (!changed) { toast.info('Selected characters already use that style'); return; }
             saveHistory();
             saveData(); injectPrompt(); updateCharList();
         };

@@ -73,6 +73,10 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
+## What's New in 3.1.8
+
+- **Disable toast notifications** — new toggle in the Behavior section suppresses all pop-up toasts (success, info, warning) from the extension. Error toasts still show so you never miss failures. Undo toasts are also suppressed when disabled.
+
 ## What's New in 3.1.7
 
 - **Storage Manager** — new "Storage" button in Actions lets you browse and clear stored color data across all chats. Useful for freeing localStorage or fixing corrupted entries that cause buttons to stop working. Current chat is highlighted and unchecked by default to prevent accidental self-clearing.
@@ -134,6 +138,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **Disable narration** | Exclude narrator from the color prompt instructions (default: on) |
 | **Share colors globally** | Use one shared color table across all chats instead of per-chat storage |
 | **Enhance palettes with LLM** | Use LLM to refine generated custom palettes; falls back to local generator on failure |
+| **Disable toast notifications** | Suppress all pop-up toast notifications from this extension (errors always show) |
 | **Narrator** | Set the narrator color used in prompt instructions |
 | **Clear** (Narrator) | Clear custom narrator color and return to default |
 | **Thoughts** | Symbols used to detect and color inner-thought dialogue (e.g., `*`, `『』`) |
