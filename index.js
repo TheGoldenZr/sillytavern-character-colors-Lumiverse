@@ -34,7 +34,9 @@
     }
 
     function normalizeToggleSettings() {
-        settings.autoRecolor = normalizeBoolean(settings.autoRecolor, true);
+        for (const [key, fallback] of Object.entries(TOGGLE_SETTING_DEFAULTS)) {
+            settings[key] = normalizeBoolean(settings[key], fallback);
+        }
     }
 
     function normalizeHexColor(value, fallback = '#888888') {
@@ -99,6 +101,8 @@
 
     const MODULE_NAME = 'dialogue-colors';
     const COLOR_SCHEMA_VERSION = 2;
+    const LEGACY_GLOBAL_SETTINGS_KEY = 'dc_global_settings';
+    const GLOBAL_SETTINGS_V2_KEY = 'dc_global_settings_v2';
     let characterColors = {};
     let colorHistory = [];
     let historyIndex = -1;
@@ -106,6 +110,25 @@
     let sortMode = 'name';
     let searchTerm = '';
     let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, disableToasts: false, colorSchemaVersion: COLOR_SCHEMA_VERSION };
+    const TOGGLE_SETTING_DEFAULTS = Object.freeze({
+        enabled: true,
+        highlightMode: false,
+        autoScanOnLoad: true,
+        showLegend: false,
+        disableNarration: true,
+        shareColorsGlobally: false,
+        cssEffects: false,
+        autoScanNewMessages: true,
+        autoLockDetected: true,
+        enableRightClick: false,
+        llmEnhanceCustomPalettes: true,
+        showControlHelp: true,
+        autoRecolor: true,
+        disableToasts: false,
+    });
+    const GLOBAL_TOGGLE_KEYS = Object.freeze(Object.keys(TOGGLE_SETTING_DEFAULTS));
+    const GLOBAL_VISUAL_KEYS = Object.freeze(['thoughtSymbols', 'themeMode', 'colorTheme', 'brightness']);
+    const GLOBAL_SETTINGS_V2_KEYS = Object.freeze([...new Set([...GLOBAL_VISUAL_KEYS, ...GLOBAL_TOGGLE_KEYS])]);
     let lastCharKey = null;
     let lastProcessedMessageSignature = '';
     // Phase 6A: Batch selection state
@@ -115,6 +138,34 @@
     let autoRecolorHintShown = false;
     let isRecoloring = false;
     let brightnessRecolorTimer = null;
+
+    function parseStorageObject(key) {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(key));
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function applySettingsSubset(source, keys) {
+        if (!source || typeof source !== 'object') return;
+        for (const key of keys) {
+            if (source[key] !== undefined) settings[key] = source[key];
+        }
+    }
+
+    function buildSettingsSubset(keys) {
+        const subset = {};
+        for (const key of keys) subset[key] = settings[key];
+        return subset;
+    }
+
+    function saveGlobalSettingsSnapshot() {
+        localStorage.setItem(GLOBAL_SETTINGS_V2_KEY, JSON.stringify(buildSettingsSubset(GLOBAL_SETTINGS_V2_KEYS)));
+        // Keep legacy global key for backwards compatibility with older versions.
+        localStorage.setItem(LEGACY_GLOBAL_SETTINGS_KEY, JSON.stringify(buildSettingsSubset(GLOBAL_VISUAL_KEYS)));
+    }
 
     const DYNAMIC_CONTROL_HELP_TEXT = Object.freeze({
         '.dc-batch-check': 'Select this character row for batch actions.',
@@ -1148,19 +1199,10 @@
         syncAllEffectiveColors();
         try {
             localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
-            localStorage.setItem('dc_global_settings', JSON.stringify({ thoughtSymbols: settings.thoughtSymbols, themeMode: settings.themeMode, colorTheme: settings.colorTheme, brightness: settings.brightness }));
+            saveGlobalSettingsSnapshot();
         } catch (e) {
             toast.warning('Storage full — could not save color data. Try clearing unused chats or characters.');
         }
-    }
-
-    // Phase 1B: Deduplicated global settings load via applyGlobal helper
-    function applyGlobal(g) {
-        if (!g) return;
-        if (g.thoughtSymbols !== undefined) settings.thoughtSymbols = g.thoughtSymbols;
-        if (g.themeMode !== undefined) settings.themeMode = g.themeMode;
-        if (g.colorTheme !== undefined) settings.colorTheme = g.colorTheme;
-        if (g.brightness !== undefined) settings.brightness = g.brightness;
     }
 
     function migrateColorSchemaIfNeeded() {
@@ -1193,9 +1235,8 @@
     // Phase 2B: Legacy key fallback in loadData
     function loadData() {
         characterColors = {};
-        let g = null;
-        try { g = JSON.parse(localStorage.getItem('dc_global_settings')); } catch { }
-        applyGlobal(g);
+        const legacyGlobal = parseStorageObject(LEGACY_GLOBAL_SETTINGS_KEY);
+        const globalV2 = parseStorageObject(GLOBAL_SETTINGS_V2_KEY);
         const primaryKey = getStorageKey();
         let loaded = false;
         try {
@@ -1223,8 +1264,15 @@
                 } catch { }
             }
         }
-        applyGlobal(g);
+        // Legacy key only has visual settings, but still serves as fallback.
+        applySettingsSubset(legacyGlobal, GLOBAL_VISUAL_KEYS);
+        // V2 is source-of-truth for shared global settings (including toggles).
+        if (globalV2) applySettingsSubset(globalV2, GLOBAL_SETTINGS_V2_KEYS);
         normalizeToggleSettings();
+        // First-run migration: seed v2 globals from currently loaded settings.
+        if (!globalV2) {
+            try { saveGlobalSettingsSnapshot(); } catch { }
+        }
         if (migrateColorSchemaIfNeeded()) {
             saveData();
         }
