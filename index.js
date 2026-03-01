@@ -2306,7 +2306,7 @@
         const html = `
         <div id="dc-ext" class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header"><b>Dialogue Colors</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
-            <div class="inline-drawer-content" style="padding:10px;display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
+            <div class="inline-drawer-content" style="padding:10px;font-size:0.9em;">
                 <details class="dc-section" open>
                     <summary style="cursor:pointer;font-weight:bold;margin-bottom:4px;">Display</summary>
                     <div style="display:flex;flex-direction:column;gap:4px;padding-left:4px;">
