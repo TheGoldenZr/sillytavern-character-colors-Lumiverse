@@ -3,6 +3,19 @@
 
     const { extension_settings, saveSettingsDebounced, getContext } = await import('../../../extensions.js');
     const { eventSource, event_types, setExtensionPrompt, saveCharacterDebounced, getCharacters, extension_prompt_types, extension_prompt_roles, generateQuietPrompt } = await import('../../../../script.js');
+    const RUNTIME_GUARD_KEY = '__dialogueColorsRuntime_v1';
+    if (globalThis[RUNTIME_GUARD_KEY]?.initialized) {
+        console.warn('[Dialogue Colors] Runtime already initialized; skipping duplicate script execution.');
+        return;
+    }
+    const runtimeState = {
+        initialized: true,
+        contextMenuSetup: false,
+        keyboardSetup: false,
+        eventsRegistered: false,
+        eventHandlers: null,
+    };
+    globalThis[RUNTIME_GUARD_KEY] = runtimeState;
 
     // Cache frequently used DOM queries
     const domCache = new Map();
@@ -346,6 +359,21 @@
         error:   (...a) => toastr?.error?.(...a),
     };
 
+    function getPresets() {
+        const parsed = parseStorageObject('dc_presets');
+        return parsed && !Array.isArray(parsed) ? parsed : {};
+    }
+
+    function persistPresets(presets) {
+        try {
+            localStorage.setItem('dc_presets', JSON.stringify(presets || {}));
+            return true;
+        } catch {
+            toast.warning('Storage full — could not save presets.');
+            return false;
+        }
+    }
+
     function getInlinePaletteInputs() {
         const name = document.getElementById('dc-palette-name-input')?.value?.trim() || '';
         const notes = document.getElementById('dc-palette-notes-input')?.value || '';
@@ -475,7 +503,7 @@
         const nameInput = document.getElementById('dc-preset-name');
         const name = nameInput?.value?.trim();
         if (!name) { toast.warning('Enter a preset name'); return; }
-        const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
+        const presets = getPresets();
         presets[name] = Object.entries(characterColors).map(([, v]) => ({
             name: String(v.name ?? '').trim(),
             color: getEntryEffectiveColor(v),
@@ -485,7 +513,7 @@
             group: String(v.group ?? '').trim(),
             locked: !!v.locked
         }));
-        localStorage.setItem('dc_presets', JSON.stringify(presets));
+        if (!persistPresets(presets)) return;
         nameInput.value = '';
         refreshPresetDropdown();
         toast.success(`Preset "${name}" saved`);
@@ -495,7 +523,7 @@
         const select = document.getElementById('dc-preset-select');
         const name = select?.value;
         if (!name) { toast.warning('Select a preset first'); return; }
-        const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
+        const presets = getPresets();
         if (!presets[name]) { toast.error('Preset not found'); return; }
         const presetData = presets[name];
         if (!Array.isArray(presetData)) { toast.error('Preset is invalid'); return; }
@@ -520,9 +548,13 @@
         const select = document.getElementById('dc-preset-select');
         const name = select?.value;
         if (!name) { toast.warning('Select a preset first'); return; }
-        const presets = JSON.parse(localStorage.getItem('dc_presets') || '{}');
+        const presets = getPresets();
+        if (!Object.prototype.hasOwnProperty.call(presets, name)) {
+            toast.error('Preset not found');
+            return;
+        }
         delete presets[name];
-        localStorage.setItem('dc_presets', JSON.stringify(presets));
+        if (!persistPresets(presets)) return;
         refreshPresetDropdown();
         toast.success(`Preset "${name}" deleted`);
     }
@@ -530,13 +562,21 @@
     function refreshPresetDropdown() {
         const select = document.getElementById('dc-preset-select');
         if (!select) return;
-        let presets = {};
-        try { presets = JSON.parse(localStorage.getItem('dc_presets') || '{}') || {}; } catch { }
-        const names = Object.keys(presets);
-        select.innerHTML = '<option value="">-- Select Preset --</option>' + names.map(n => {
-            const safeName = escapeAttr(n);
-            return `<option value="${safeName}">${safeName}</option>`;
-        }).join('');
+        const previousValue = select.value;
+        const presets = getPresets();
+        const names = Object.keys(presets).sort((a, b) => a.localeCompare(b));
+        select.textContent = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '-- Select Preset --';
+        select.appendChild(placeholder);
+        for (const name of names) {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            select.appendChild(option);
+        }
+        if (previousValue && names.includes(previousValue)) select.value = previousValue;
     }
 
     // Phase 5C: Custom palettes
@@ -896,20 +936,35 @@
     function refreshPaletteDropdown() {
         const select = document.getElementById('dc-palette');
         if (!select) return;
-        const builtinOptions = Object.keys(COLOR_THEMES).map(k => {
-            const safeKey = escapeAttr(k);
-            const safeLabel = escapeHtml(k.charAt(0).toUpperCase() + k.slice(1));
-            return `<option value="${safeKey}">${safeLabel}</option>`;
-        }).join('');
+        const previousValue = select.value;
+        select.textContent = '';
+        const builtinKeys = Object.keys(COLOR_THEMES);
+        for (const key of builtinKeys) {
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = key.charAt(0).toUpperCase() + key.slice(1);
+            select.appendChild(option);
+        }
         const customs = getCustomPalettes();
-        const customNames = Object.keys(customs);
-        const customOptions = customNames.length ? `<optgroup label="Custom">${customNames.map(n => {
-            const safeName = escapeAttr(n);
-            return `<option value="custom:${safeName}">${safeName}</option>`;
-        }).join('')}</optgroup>` : '';
-        select.innerHTML = builtinOptions + customOptions;
+        const customNames = Object.keys(customs).sort((a, b) => a.localeCompare(b));
+        if (customNames.length) {
+            const customGroup = document.createElement('optgroup');
+            customGroup.label = 'Custom';
+            for (const name of customNames) {
+                const option = document.createElement('option');
+                option.value = `custom:${name}`;
+                option.textContent = name;
+                customGroup.appendChild(option);
+            }
+            select.appendChild(customGroup);
+        }
         select.value = settings.colorTheme;
         if (select.value !== settings.colorTheme) {
+            if (previousValue && [...select.options].some(o => o.value === previousValue)) {
+                select.value = previousValue;
+                settings.colorTheme = previousValue;
+                return;
+            }
             settings.colorTheme = 'pastel';
             select.value = 'pastel';
         }
@@ -1120,6 +1175,8 @@
 
     // Right-click and long-press context menu for messages
     function setupContextMenu() {
+        if (runtimeState.contextMenuSetup) return;
+        runtimeState.contextMenuSetup = true;
         let longPressTimer = null;
         let longPressTarget = null;
 
@@ -1478,10 +1535,10 @@
             legend = document.createElement('div');
             legend.id = 'dc-legend-float';
 
-            const savedPos = JSON.parse(localStorage.getItem('dc_legend_position') || '{}');
-            const top = savedPos.top ?? 60;
-            const left = savedPos.left;
-            const right = savedPos.right ?? 10;
+            const savedPos = parseStorageObject('dc_legend_position') || {};
+            const top = Number.isFinite(savedPos.top) ? savedPos.top : 60;
+            const left = Number.isFinite(savedPos.left) ? savedPos.left : undefined;
+            const right = Number.isFinite(savedPos.right) ? savedPos.right : 10;
 
             legend.style.cssText = `position:fixed;top:${top}px;${left !== undefined ? `left:${left}px;` : `right:${right}px;`}background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:8px;padding:8px;z-index:9999;font-size:0.8em;max-width:150px;max-height:60vh;overflow-y:auto;display:none;cursor:move;user-select:none;`;
 
@@ -1749,7 +1806,7 @@
     function parseColorBlock(element) {
         const mesText = element.querySelector?.('.mes_text') || element;
         if (!mesText) return false;
-        const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
+        const colorBlockRegex = /\[COLORS?:([^\]]*)\]/gi;
         let match, foundNew = false;
         // Parse from textContent for data extraction
         while ((match = colorBlockRegex.exec(mesText.textContent)) !== null) {
@@ -1763,7 +1820,7 @@
         const mesText = element?.querySelector?.('.mes_text') || element;
         if (!mesText) return false;
         const before = mesText.innerHTML;
-        const cleaned = before.replace(/\[COLORS?:.*?\]/gis, '');
+        const cleaned = before.replace(/\[COLORS?:[^\]]*\]/gi, '');
         if (cleaned === before) return false;
         mesText.innerHTML = cleaned;
         return true;
@@ -1781,7 +1838,7 @@
         Object.values(characterColors).forEach(c => c.dialogueCount = 0);
         const ctx = getContext();
         const chat = ctx?.chat || [];
-        const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
+        const colorBlockRegex = /\[COLORS?:([^\]]*)\]/gi;
 
         for (const msg of chat) {
             const text = msg?.mes || '';
@@ -1811,6 +1868,38 @@
         button.textContent = button.dataset.defaultLabel || 'Recolor';
     }
 
+    function parseColorAssignmentsFromText(text) {
+        const latestByColor = {};
+        const namesByColor = {};
+        const colorBlockRegex = /\[COLORS?:([^\]]*)\]/gi;
+        let blockMatch;
+        while ((blockMatch = colorBlockRegex.exec(text || '')) !== null) {
+            for (const pair of blockMatch[1].split(',')) {
+                const eqIdx = pair.indexOf('=');
+                if (eqIdx === -1) continue;
+                const { name } = parseNameWithNicknames(pair.substring(0, eqIdx).trim());
+                const rawColor = pair.substring(eqIdx + 1).trim();
+                if (!name || !/^#[0-9a-fA-F]{6}$/.test(rawColor)) continue;
+                const colorKey = rawColor.toLowerCase();
+                const nameKey = name.toLowerCase();
+                latestByColor[colorKey] = nameKey;
+                if (!namesByColor[colorKey]) namesByColor[colorKey] = new Set();
+                namesByColor[colorKey].add(nameKey);
+            }
+        }
+        return { latestByColor, namesByColor };
+    }
+
+    function collectFontColorsFromText(text) {
+        const colors = new Set();
+        const fontTagRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?[^>]*>/gi;
+        let match;
+        while ((match = fontTagRegex.exec(text || '')) !== null) {
+            colors.add(match[1].toLowerCase());
+        }
+        return colors;
+    }
+
     async function recolorAllMessages() {
         const ctx = getContext();
         const chat = ctx?.chat || [];
@@ -1820,26 +1909,23 @@
         setRecolorButtonBusy(true);
 
         try {
-            const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
+            const colorBlockRegex = /\[COLORS?:([^\]]*)\]/gi;
             const fontTagRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?[^>]*>/gi;
             syncAllEffectiveColors();
 
-            // Step 1: Build global reverse map (oldColor → characterName) from all [COLORS:] blocks.
-            // Later messages overwrite earlier so the most-recent assignment wins.
-            const globalColorToName = {};
+            // Step 1: Build global reverse map with ambiguity tracking.
+            // Later messages overwrite earlier in latestByColor, but ambiguous colors are tracked in namesByColor.
+            const globalLatestByColor = {};
+            const globalNamesByColor = {};
             for (const msg of chat) {
                 const text = msg?.mes || '';
-                let m;
-                while ((m = colorBlockRegex.exec(text)) !== null) {
-                    for (const pair of m[1].split(',')) {
-                        const eqIdx = pair.indexOf('=');
-                        if (eqIdx === -1) continue;
-                        const { name } = parseNameWithNicknames(pair.substring(0, eqIdx).trim());
-                        const rawColor = pair.substring(eqIdx + 1).trim();
-                        if (name && /^#[0-9a-fA-F]{6}$/.test(rawColor)) {
-                            globalColorToName[rawColor.toLowerCase()] = name;
-                        }
-                    }
+                const parsed = parseColorAssignmentsFromText(text);
+                for (const [color, name] of Object.entries(parsed.latestByColor)) {
+                    globalLatestByColor[color] = name;
+                }
+                for (const [color, names] of Object.entries(parsed.namesByColor)) {
+                    if (!globalNamesByColor[color]) globalNamesByColor[color] = new Set();
+                    for (const name of names) globalNamesByColor[color].add(name);
                 }
             }
 
@@ -1859,6 +1945,7 @@
 
             // Step 3: Process each non-user message
             let recoloredCount = 0;
+            let ambiguousSkippedCount = 0;
             const messageEls = document.querySelectorAll('.mes');
             for (let i = 0; i < chat.length; i++) {
                 const msg = chat[i];
@@ -1866,32 +1953,27 @@
                 const rawText = msg.mes || '';
                 if (!rawText) continue;
 
-                // Build per-message local oldColor→name map from this message's [COLORS:] block
-                const localColorToName = {};
-                let blockMatch;
-                const localBlockRegex = /\[COLORS?:(.*?)\]/gis;
-                while ((blockMatch = localBlockRegex.exec(rawText)) !== null) {
-                    for (const pair of blockMatch[1].split(',')) {
-                        const eqIdx = pair.indexOf('=');
-                        if (eqIdx === -1) continue;
-                        const { name } = parseNameWithNicknames(pair.substring(0, eqIdx).trim());
-                        const rawColor = pair.substring(eqIdx + 1).trim();
-                        if (name && /^#[0-9a-fA-F]{6}$/.test(rawColor)) {
-                            localColorToName[rawColor.toLowerCase()] = name;
-                        }
-                    }
-                }
-
-                // Merge: local overrides global
-                const mergedColorToName = { ...globalColorToName, ...localColorToName };
+                const localParsed = parseColorAssignmentsFromText(rawText);
+                const localLatestByColor = localParsed.latestByColor;
+                const localNamesByColor = localParsed.namesByColor;
+                const fontColorsInMessage = collectFontColorsFromText(rawText);
+                const candidateColors = new Set([...fontColorsInMessage, ...Object.keys(localLatestByColor)]);
 
                 // Build oldColor → newColor replacement map
                 const replacements = {};
-                for (const [oldColor, charName] of Object.entries(mergedColorToName)) {
-                    const newColor = nameToNewColor[charName.toLowerCase()];
-                    if (newColor && normalizeHexColor(oldColor) !== normalizeHexColor(newColor)) {
-                        replacements[oldColor] = newColor;
+                for (const oldColor of candidateColors) {
+                    let mappedName = '';
+                    const localNames = localNamesByColor[oldColor];
+                    if (localNames) {
+                        if (localNames.size !== 1) { ambiguousSkippedCount++; continue; }
+                        mappedName = localLatestByColor[oldColor];
+                    } else {
+                        const globalNames = globalNamesByColor[oldColor];
+                        if (!globalNames || globalNames.size !== 1) { if (globalNames?.size > 1) ambiguousSkippedCount++; continue; }
+                        mappedName = globalLatestByColor[oldColor];
                     }
+                    const newColor = nameToNewColor[mappedName];
+                    if (newColor && normalizeHexColor(oldColor) !== normalizeHexColor(newColor)) replacements[oldColor] = newColor;
                 }
 
                 if (!Object.keys(replacements).length) continue;
@@ -1949,6 +2031,8 @@
                 } else {
                     toast.info(`Recolored ${recoloredCount} message${recoloredCount !== 1 ? 's' : ''}.`);
                 }
+            } else if (ambiguousSkippedCount > 0) {
+                toast.info(`No messages recolored; skipped ${ambiguousSkippedCount} ambiguous legacy color mapping${ambiguousSkippedCount !== 1 ? 's' : ''}.`);
             } else {
                 toast.info('No messages needed recoloring.');
             }
@@ -1988,7 +2072,7 @@
                 return;
             }
             lastProcessedMessageSignature = signature;
-            const colorBlockRegex = /\[COLORS?:(.*?)\]/gis;
+            const colorBlockRegex = /\[COLORS?:([^\]]*)\]/gi;
             let match;
             while ((match = colorBlockRegex.exec(text)) !== null) {
                 processColorPairs(match[1]);
@@ -2628,11 +2712,7 @@
             saveData(); injectPrompt(); updateCharList();
         };
 
-        // Keyboard shortcuts
-        document.addEventListener('keydown', e => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && document.activeElement?.closest('#dc-ext')) { e.preventDefault(); undo(); }
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey)) && document.activeElement?.closest('#dc-ext')) { e.preventDefault(); redo(); }
-        });
+        registerKeyboardShortcuts();
 
         applyControlHelpText();
         updateCharList();
@@ -2641,46 +2721,16 @@
 
     globalThis.DialogueColorsInterceptor = async function (chat, contextSize, abort, type) { if (type !== 'quiet' && settings.enabled) injectPrompt(); };
 
-    function init() {
-        loadData();
-        setTimeout(() => ensureRegexScript(), 1000);
-        setupContextMenu();
-
-        // Phase 6C: Inject mobile CSS for larger touch targets
-        const mobileStyle = document.createElement('style');
-        mobileStyle.textContent = `
-            @media (max-width: 768px) {
-                #dc-ext .menu_button { min-height: 36px; min-width: 36px; font-size: 0.85em; }
-                #dc-ext input[type="checkbox"] { width: 18px; height: 18px; }
-                #dc-ext .dc-char .menu_button { min-height: 30px; min-width: 30px; }
-                #dc-ext input[type="color"] { width: 28px !important; height: 28px !important; }
-                #dc-ext .dc-batch-check { width: 18px !important; height: 18px !important; }
-                #dc-ext details summary { padding: 8px 4px; }
-                #dc-harmony-popup { flex-wrap: wrap; max-width: 200px; }
-                #dc-harmony-popup .dc-harmony-swatch { width: 32px !important; height: 32px !important; }
-            }
-        `;
-        document.head.appendChild(mobileStyle);
-
-        let waitAttempts = 0;
-        const waitUI = setInterval(() => {
-            waitAttempts++;
-            if (document.getElementById('extensions_settings')) {
-                clearInterval(waitUI);
-                createUI();
-                clearDomCache();
-                injectPrompt();
-            } else if (waitAttempts > 60) {
-                clearInterval(waitUI);
-            }
-        }, 500);
+    function registerKeyboardShortcuts() {
+        if (runtimeState.keyboardSetup) return;
+        document.addEventListener('keydown', e => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && document.activeElement?.closest('#dc-ext')) { e.preventDefault(); undo(); }
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey)) && document.activeElement?.closest('#dc-ext')) { e.preventDefault(); redo(); }
+        });
+        runtimeState.keyboardSetup = true;
     }
 
-    setTimeout(init, 100);
-    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, () => injectPrompt());
-    eventSource.on(event_types.MESSAGE_RECEIVED, onNewMessage);
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, onNewMessage);
-    eventSource.on(event_types.CHAT_CHANGED, () => {
+    function handleChatChanged() {
         clearDomCache();
         const currentCharKey = getCharKey();
         if (currentCharKey !== lastCharKey) {
@@ -2699,5 +2749,61 @@
                 stripColorBlocksFromDisplay();
             }, 1000);
         }
-    });
+    }
+
+    function registerEventHandlers() {
+        if (runtimeState.eventsRegistered) return;
+        runtimeState.eventHandlers = {
+            generationAfterCommands: () => injectPrompt(),
+            newMessage: onNewMessage,
+            chatChanged: handleChatChanged,
+        };
+        eventSource.on(event_types.GENERATION_AFTER_COMMANDS, runtimeState.eventHandlers.generationAfterCommands);
+        eventSource.on(event_types.MESSAGE_RECEIVED, runtimeState.eventHandlers.newMessage);
+        eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, runtimeState.eventHandlers.newMessage);
+        eventSource.on(event_types.CHAT_CHANGED, runtimeState.eventHandlers.chatChanged);
+        runtimeState.eventsRegistered = true;
+    }
+
+    function init() {
+        loadData();
+        setTimeout(() => ensureRegexScript(), 1000);
+        setupContextMenu();
+
+        // Phase 6C: Inject mobile CSS for larger touch targets
+        let mobileStyle = document.getElementById('dc-mobile-style');
+        if (!mobileStyle) {
+            mobileStyle = document.createElement('style');
+            mobileStyle.id = 'dc-mobile-style';
+            mobileStyle.textContent = `
+            @media (max-width: 768px) {
+                #dc-ext .menu_button { min-height: 36px; min-width: 36px; font-size: 0.85em; }
+                #dc-ext input[type="checkbox"] { width: 18px; height: 18px; }
+                #dc-ext .dc-char .menu_button { min-height: 30px; min-width: 30px; }
+                #dc-ext input[type="color"] { width: 28px !important; height: 28px !important; }
+                #dc-ext .dc-batch-check { width: 18px !important; height: 18px !important; }
+                #dc-ext details summary { padding: 8px 4px; }
+                #dc-harmony-popup { flex-wrap: wrap; max-width: 200px; }
+                #dc-harmony-popup .dc-harmony-swatch { width: 32px !important; height: 32px !important; }
+            }
+        `;
+            document.head.appendChild(mobileStyle);
+        }
+
+        let waitAttempts = 0;
+        const waitUI = setInterval(() => {
+            waitAttempts++;
+            if (document.getElementById('extensions_settings')) {
+                clearInterval(waitUI);
+                createUI();
+                clearDomCache();
+                injectPrompt();
+            } else if (waitAttempts > 60) {
+                clearInterval(waitUI);
+            }
+        }, 500);
+    }
+
+    registerEventHandlers();
+    setTimeout(init, 100);
 })();
