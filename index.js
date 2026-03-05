@@ -2207,7 +2207,46 @@
             if (!foundColorBlock && settings.autoColorize && !lastMsg.is_user) {
                 const hasExistingColors = collectFontColorsFromText(text).size > 0;
                 if (!hasExistingColors) {
-                    colorizeMessages('last');
+                    // Auto-add speaker to characterColors if missing
+                    const speakerName = (lastMsg.name || '').trim();
+                    const speakerKey = speakerName.toLowerCase();
+                    if (speakerName && !characterColors[speakerKey]) {
+                        addCharacter(speakerName);
+                    }
+                    const entry = characterColors[speakerKey];
+                    if (entry) {
+                        const color = getEntryEffectiveColor(entry);
+                        // Build dialogue regex (same logic as colorizeMessages)
+                        const delimiters = new Set(['"']);
+                        for (const ch of (settings.thoughtSymbols || '')) {
+                            if (ch.trim()) delimiters.add(ch);
+                        }
+                        const patterns = [];
+                        for (const d of delimiters) {
+                            const escaped = d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            patterns.push(`${escaped}([^${escaped}]+)${escaped}`);
+                        }
+                        if (patterns.length) {
+                            const dialogueRegex = new RegExp(`(${patterns.join('|')})`, 'g');
+                            const updated = text.replace(dialogueRegex, match =>
+                                `<font color="${color}">${match}</font>`
+                            );
+                            if (updated !== text) {
+                                lastMsg.mes = updated;
+                                // Update DOM directly (same pattern as stripColorBlockFromElement)
+                                const lastMsgEl = document.querySelector('.mes:last-child .mes_text');
+                                if (lastMsgEl) {
+                                    lastMsgEl.innerHTML = lastMsgEl.innerHTML.replace(
+                                        dialogueRegex,
+                                        match => `<font color="${color}">${match}</font>`
+                                    );
+                                }
+                                // Save silently in background
+                                const ctx2 = getContext();
+                                if (typeof ctx2?.saveChat === 'function') ctx2.saveChat();
+                            }
+                        }
+                    }
                 }
             }
         }, 600);
