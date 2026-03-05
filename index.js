@@ -150,6 +150,7 @@
     let legendListeners = null;
     let autoRecolorHintShown = false;
     let isRecoloring = false;
+    let isColorizing = false;
     let brightnessRecolorTimer = null;
 
     function parseStorageObject(key) {
@@ -231,6 +232,7 @@
             items: [
                 { label: 'Scan / Clear / Stats', key: 'dc-scan' },
                 { label: 'Recolor messages', key: 'dc-recolor' },
+                { label: 'Colorize uncolored', key: 'dc-colorize' },
                 { label: 'Auto-recolor', key: 'dc-auto-recolor' },
                 { label: 'Undo / Redo / Fix', key: 'dc-undo' },
                 { label: 'Regen / Theme flip', key: 'dc-regen' },
@@ -1868,6 +1870,19 @@
         button.textContent = button.dataset.defaultLabel || 'Recolor';
     }
 
+    function setColorizeButtonBusy(isBusyState) {
+        const button = document.getElementById('dc-colorize');
+        if (!button) return;
+        if (isBusyState) {
+            if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent || 'Colorize';
+            button.disabled = true;
+            button.textContent = 'Colorizing...';
+            return;
+        }
+        button.disabled = false;
+        button.textContent = button.dataset.defaultLabel || 'Colorize';
+    }
+
     function parseColorAssignmentsFromText(text) {
         const latestByColor = {};
         const namesByColor = {};
@@ -2039,6 +2054,110 @@
         } finally {
             isRecoloring = false;
             setRecolorButtonBusy(false);
+        }
+    }
+
+    async function colorizeMessages(targetMode = 'all') {
+        const ctx = getContext();
+        const chat = ctx?.chat || [];
+        if (!chat.length) { toast.info('No messages to colorize.'); return; }
+        if (isColorizing) { toast.info('Colorize is already running.'); return; }
+        isColorizing = true;
+        setColorizeButtonBusy(true);
+
+        try {
+            syncAllEffectiveColors();
+
+            // Build name → color lookup from characterColors (including aliases)
+            const nameToColor = {};
+            for (const entry of Object.values(characterColors)) {
+                const adjusted = normalizeHexColor(entry.color);
+                nameToColor[entry.name.toLowerCase()] = adjusted;
+                for (const alias of (entry.aliases || [])) {
+                    nameToColor[alias.toLowerCase()] = adjusted;
+                }
+            }
+            if (settings.narratorColor) {
+                nameToColor['narrator'] = applyThemeReadabilityAndBrightness(settings.narratorColor);
+            }
+
+            // Build dialogue regex from thought symbols + quote marks
+            const delimiters = new Set();
+            delimiters.add('"');
+            const symbols = settings.thoughtSymbols || '';
+            for (const ch of symbols) {
+                if (ch.trim()) delimiters.add(ch);
+            }
+            // Build alternation: for each delimiter d, match d([^d]+)d
+            const patterns = [];
+            for (const d of delimiters) {
+                const escaped = d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                patterns.push(`${escaped}([^${escaped}]+)${escaped}`);
+            }
+            if (!patterns.length) {
+                toast.info('No dialogue delimiters configured.');
+                return;
+            }
+            const dialogueRegex = new RegExp(`(${patterns.join('|')})`, 'g');
+
+            // Determine message range
+            const startIdx = targetMode === 'last' ? Math.max(0, chat.length - 1) : 0;
+
+            let colorizedCount = 0;
+            let skippedNoColor = 0;
+            for (let i = startIdx; i < chat.length; i++) {
+                const msg = chat[i];
+                if (!msg || msg.is_user) continue;
+                const rawText = msg.mes || '';
+                if (!rawText) continue;
+
+                // Skip messages that already have <font color> tags
+                const existingFontColors = collectFontColorsFromText(rawText);
+                if (existingFontColors.size > 0) continue;
+
+                // Get speaker color
+                const speakerName = (msg.name || '').toLowerCase();
+                const color = nameToColor[speakerName];
+                if (!color) { skippedNoColor++; continue; }
+
+                // Replace dialogue/thought patterns with colored versions
+                let updated = rawText.replace(dialogueRegex, (match) => {
+                    return `<font color="${color}">${match}</font>`;
+                });
+
+                if (updated === rawText) continue; // No dialogue found
+
+                // Append [COLORS:] block if missing
+                const colorBlockRegex = /\[COLORS?:([^\]]*)\]/gi;
+                if (!colorBlockRegex.test(updated)) {
+                    const displayName = msg.name || speakerName;
+                    updated += `\n[COLORS:${displayName}=${color}]`;
+                }
+
+                msg.mes = updated;
+                colorizedCount++;
+            }
+
+            // Persist and reload
+            if (colorizedCount > 0) {
+                if (typeof ctx?.saveChat === 'function') await ctx.saveChat();
+                if (typeof ctx?.reloadCurrentChat === 'function') {
+                    toast.info(`Colorized ${colorizedCount} message${colorizedCount !== 1 ? 's' : ''}${skippedNoColor > 0 ? ` (${skippedNoColor} skipped — no color assigned)` : ''}. Reloading chat...`);
+                    await ctx.reloadCurrentChat();
+                } else if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
+                    toast.info(`Colorized ${colorizedCount} message${colorizedCount !== 1 ? 's' : ''}. Refreshing chat...`);
+                    eventSource.emit(event_types.CHAT_CHANGED);
+                } else {
+                    toast.info(`Colorized ${colorizedCount} message${colorizedCount !== 1 ? 's' : ''}.`);
+                }
+            } else if (skippedNoColor > 0) {
+                toast.info(`No uncolored dialogue found; ${skippedNoColor} message${skippedNoColor !== 1 ? 's' : ''} skipped (no color assigned for speaker).`);
+            } else {
+                toast.info('No uncolored messages found.');
+            }
+        } finally {
+            isColorizing = false;
+            setColorizeButtonBusy(false);
         }
     }
 
@@ -2433,7 +2552,7 @@
                     <summary style="cursor:pointer;font-weight:bold;margin-bottom:4px;">Actions</summary>
                     <div style="display:flex;flex-direction:column;gap:4px;padding-left:4px;">
                         <div style="display:flex;gap:4px;"><button id="dc-scan" class="menu_button" style="flex:1;" data-help="Scan all chat messages for [COLORS:] blocks, extract characters and colors, and reset dialogue counts.">Scan</button><button id="dc-clear" class="menu_button" style="flex:1;" data-help="Remove all tracked characters and color assignments.">Clear</button><button id="dc-stats" class="menu_button" style="flex:1;" title="Dialogue statistics" data-help="Open dialogue statistics for currently tracked characters.">Stats</button></div>
-                        <div style="display:flex;gap:4px;"><button id="dc-recolor" class="menu_button" style="flex:1;" title="Recolor all messages with current color assignments" data-help="Rewrite font colors in all messages to match current color assignments and reload chat.">Recolor</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-recolor" class="menu_button" style="flex:1;" title="Recolor all messages with current color assignments" data-help="Rewrite font colors in all messages to match current color assignments and reload chat.">Recolor</button><button id="dc-colorize" class="menu_button" style="flex:1;" title="Add color tags to uncolored messages (Shift+click = last message only)" data-help="Wrap dialogue in uncolored messages with character colors. Shift+click to colorize only the last message.">Colorize</button></div>
                         <div style="display:flex;gap:4px;"><button id="dc-undo" class="menu_button" style="flex:1;" data-help="Undo the last color-table change.">&#8630;</button><button id="dc-redo" class="menu_button" style="flex:1;" data-help="Redo the most recently undone change.">&#8631;</button><button id="dc-fix-conflicts" class="menu_button" style="flex:1;" title="Auto-fix color conflicts" data-help="Auto-resolve colors that are too visually similar and report which pairs were changed.">Fix</button></div>
                         <div style="display:flex;gap:4px;"><button id="dc-regen" class="menu_button" style="flex:1;" title="Regenerate all colors" data-help="Regenerate colors for unlocked characters — tries name-based suggestions first, then falls back to palette.">Regen</button><button id="dc-flip-theme" class="menu_button" style="flex:1;" title="Flip colors for Dark/Light theme switch" data-help="Invert color lightness to quickly adapt to light/dark theme changes.">&#9728;/&#127769;</button></div>
                         <hr style="margin:4px 0;opacity:0.15;">
@@ -2525,6 +2644,13 @@
         $('dc-recolor').onclick = () => {
             if (confirm('Recolor all messages with current color assignments?')) {
                 recolorAllMessages();
+            }
+        };
+        $('dc-colorize').onclick = (e) => {
+            if (e.shiftKey) {
+                colorizeMessages('last');
+            } else if (confirm('Colorize all uncolored messages with known character colors?')) {
+                colorizeMessages('all');
             }
         };
         $('dc-fix-conflicts').onclick = autoResolveConflicts;
