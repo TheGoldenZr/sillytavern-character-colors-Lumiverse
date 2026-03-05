@@ -5,7 +5,56 @@
 .cc-char-item { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
 .cc-char-item input[type="color"] { width: 24px; height: 24px; padding: 0; border: 1px solid var(--SmartThemeBorderColor); }
 #cc-input-btn:hover { opacity: 1 !important; }
-#dc-ext .checkbox_label input[type="checkbox"] { opacity: 1 !important; position: relative !important; }
+#dc-ext label.checkbox_label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+#dc-ext label.checkbox_label > span {
+    flex: 1;
+}
+
+#dc-ext label.checkbox_label input[type="checkbox"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    display: inline-block !important;
+    position: relative !important;
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px !important;
+    min-height: 16px !important;
+    max-width: 16px !important;
+    max-height: 16px !important;
+    flex: 0 0 auto !important;
+    border: 2px solid var(--SmartThemeBorderColor, #888) !important;
+    border-radius: 50% !important;
+    background: transparent !important;
+    cursor: pointer !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    opacity: 1 !important;
+    outline: none !important;
+    box-sizing: border-box !important;
+    vertical-align: middle !important;
+    transform: none !important;
+    filter: none !important;
+}
+
+#dc-ext label.checkbox_label input[type="checkbox"]::before {
+    content: none !important;
+}
+
+#dc-ext label.checkbox_label input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--SmartThemeQuoteColor, #5a9) !important;
+    outline-offset: 1px !important;
+}
+
+#dc-ext label.checkbox_label input[type="checkbox"]:checked {
+    background: var(--SmartThemeQuoteColor, #5a9) !important;
+    border-color: var(--SmartThemeQuoteColor, #5a9) !important;
+}
 
 #dc-stats-popup {
     position: fixed !important;
@@ -231,9 +280,13 @@
         font-size: 0.85em;
     }
 
-    #dc-ext input[type="checkbox"] {
-        width: 18px;
-        height: 18px;
+    #dc-ext label.checkbox_label input[type="checkbox"] {
+        width: 18px !important;
+        height: 18px !important;
+        min-width: 18px !important;
+        min-height: 18px !important;
+        max-width: 18px !important;
+        max-height: 18px !important;
     }
 
     #dc-ext .dc-char .menu_button {
