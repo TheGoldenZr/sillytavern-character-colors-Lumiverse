@@ -156,6 +156,7 @@
     let autoRecolorHintShown = false;
     let isRecoloring = false;
     let isColorizing = false;
+    let isAutoColorizing = false;
     let brightnessRecolorTimer = null;
 
     function parseStorageObject(key) {
@@ -2803,54 +2804,59 @@
             stripColorBlockFromElement(document.querySelector('.mes:last-child .mes_text'));
 
             // Auto-colorize fallback: if model produced no color output at all
-            if (!foundColorBlock && settings.autoColorize && !lastMsg.is_user) {
+            if (!foundColorBlock && settings.autoColorize && !lastMsg.is_user && !isAutoColorizing) {
                 const hasExistingColors = collectFontColorsFromText(text).size > 0;
                 if (!hasExistingColors) {
+                    isAutoColorizing = true;
                     const lastMesEl = document.querySelector('.mes:last-child');
                     showAutoColorizeIndicator(lastMesEl);
-                    syncAllEffectiveColors();
-                    // Pre-register all unique non-user speaker names for attribution
-                    for (const msg of chat) {
-                        if (msg && !msg.is_user && msg.name) {
-                            const speakerName = msg.name.trim();
-                            if (speakerName && !isCompositeSpeakerLabel(speakerName)) {
-                                ensureCharacterEntry(speakerName);
+                    try {
+                        syncAllEffectiveColors();
+                        // Pre-register all unique non-user speaker names for attribution
+                        for (const msg of chat) {
+                            if (msg && !msg.is_user && msg.name) {
+                                const speakerName = msg.name.trim();
+                                if (speakerName && !isCompositeSpeakerLabel(speakerName)) {
+                                    ensureCharacterEntry(speakerName);
+                                }
                             }
                         }
-                    }
-                    // Try LLM path first, fall back to regex
-                    let result = null;
-                    try {
-                        result = await colorizeMessageWithLLM(text, lastMsg.name);
-                    } catch (e) {
-                        console.warn('[Dialogue Colors] LLM auto-colorize failed, falling back to regex:', e);
-                    }
-                    if (!result || !result.changed) {
-                        result = colorizeMessageText(text, lastMsg.name, { autoAddMessageSpeaker: true });
-                        if (result.createdCharacters) {
-                            saveHistory();
-                            saveData(); updateCharList(); injectPrompt();
+                        // Try LLM path first, fall back to regex
+                        let result = null;
+                        try {
+                            result = await colorizeMessageWithLLM(text, lastMsg.name);
+                        } catch (e) {
+                            console.warn('[Dialogue Colors] LLM auto-colorize failed, falling back to regex:', e);
                         }
-                    }
-                    if (result.changed) {
-                        lastMsg.mes = result.updatedText;
-                        lastProcessedMessageSignature = `${chat.length}|${sigId}|${lastMsg.mes}`;
+                        if (!result || !result.changed) {
+                            result = colorizeMessageText(text, lastMsg.name, { autoAddMessageSpeaker: true });
+                            if (result.createdCharacters) {
+                                saveHistory();
+                                saveData(); updateCharList(); injectPrompt();
+                            }
+                        }
+                        if (result.changed) {
+                            lastMsg.mes = result.updatedText;
+                            lastProcessedMessageSignature = `${chat.length}|${sigId}|${lastMsg.mes}`;
 
-                        const ctx2 = getContext();
-                        if (typeof ctx2?.saveChat === 'function') {
-                            await ctx2.saveChat();
-                        }
+                            const ctx2 = getContext();
+                            if (typeof ctx2?.saveChat === 'function') {
+                                await ctx2.saveChat();
+                            }
 
-                        // Force immediate reload
-                        if (typeof ctx2?.reloadCurrentChat === 'function') {
-                            await ctx2.reloadCurrentChat();
-                        } else if (typeof eventSource?.emit === 'function' && event_types?.MESSAGE_UPDATED) {
-                            eventSource.emit(event_types.MESSAGE_UPDATED);
-                        } else if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
-                            eventSource.emit(event_types.CHAT_CHANGED);
+                            // Force immediate reload
+                            if (typeof ctx2?.reloadCurrentChat === 'function') {
+                                await ctx2.reloadCurrentChat();
+                            } else if (typeof eventSource?.emit === 'function' && event_types?.MESSAGE_UPDATED) {
+                                eventSource.emit(event_types.MESSAGE_UPDATED);
+                            } else if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
+                                eventSource.emit(event_types.CHAT_CHANGED);
+                            }
                         }
+                    } finally {
+                        isAutoColorizing = false;
+                        hideAutoColorizeIndicator(document.querySelector('.mes:last-child'));
                     }
-                    hideAutoColorizeIndicator(lastMesEl);
                 }
             }
         }, 600);
