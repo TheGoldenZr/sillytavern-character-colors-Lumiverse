@@ -126,7 +126,7 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, disableToasts: false, autoColorize: false, colorSchemaVersion: COLOR_SCHEMA_VERSION };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, disableToasts: false, autoColorize: false, llmConnectionProfile: null, colorSchemaVersion: COLOR_SCHEMA_VERSION };
     const TOGGLE_SETTING_DEFAULTS = Object.freeze({
         enabled: true,
         highlightMode: false,
@@ -818,151 +818,305 @@
 
     async function enhancePaletteWithLLM(name, notes, basePalette, profile, count = CUSTOM_PALETTE_SIZE) {
         if (typeof generateQuietPrompt !== 'function') return null;
-        const promptNotes = notes?.trim() ? notes.trim() : 'None';
-        const instruction = [
-            'Generate a color palette as a JSON array of hex colors.',
-            `Theme: "${name}".`,
-            `Notes: "${promptNotes}".`,
-            `Return exactly ${count} colors.`,
-            'Each item must be a string like "#RRGGBB".',
-            `Base palette (optional inspiration): ${JSON.stringify(basePalette)}.`,
-            'Return ONLY the JSON array and nothing else.'
-        ].join(' ');
 
-        const jsonSchema = {
-            type: 'array',
-            minItems: count,
-            maxItems: count,
-            items: { type: 'string', pattern: '^#?[0-9a-fA-F]{6}$' }
-        };
+        const targetProfile = settings.llmConnectionProfile;
+        return await withProfileSwitch(targetProfile, async () => {
+            const promptNotes = notes?.trim() ? notes.trim() : 'None';
+            const instruction = [
+                'Generate a color palette as a JSON array of hex colors.',
+                `Theme: "${name}".`,
+                `Notes: "${promptNotes}".`,
+                `Return exactly ${count} colors.`,
+                'Each item must be a string like "#RRGGBB".',
+                `Base palette (optional inspiration): ${JSON.stringify(basePalette)}.`,
+                'Return ONLY the JSON array and nothing else.'
+            ].join(' ');
 
-        let response = '';
+            const jsonSchema = {
+                type: 'array',
+                minItems: count,
+                maxItems: count,
+                items: { type: 'string', pattern: '^#?[0-9a-fA-F]{6}$' }
+            };
+
+            let response = '';
+            try {
+                response = await generateQuietPrompt({
+                    quietPrompt: instruction,
+                    skipWIAN: true,
+                    quietName: `PaletteGen_${Date.now()}`,
+                    quietToLoud: false,
+                    jsonSchema
+                });
+            } catch (e) {
+                console.warn('[Dialogue Colors] LLM palette generation failed:', e);
+                return null;
+            }
+
+            if (!response || typeof response !== 'string') return null;
+            let jsonText = response.trim();
+            if (!jsonText.startsWith('[')) {
+                const match = jsonText.match(/\[[\s\S]*\]/);
+                if (!match) return null;
+                jsonText = match[0];
+            }
+            let parsed;
+            try {
+                parsed = JSON.parse(jsonText);
+            } catch {
+                return null;
+            }
+            if (!Array.isArray(parsed)) return null;
+            const sanitized = sanitizeGeneratedPalette(parsed, profile, count);
+            return sanitized.length ? sanitized : null;
+        });
+    }
+
+    async function withProfileSwitch(profileId, asyncOperation) {
+        if (!profileId || !SlashCommandParser?.commands?.['profile']) {
+            return await asyncOperation();
+        }
+
+        let originalProfile = null;
+        let switched = false;
+
         try {
-            response = await generateQuietPrompt({
-                quietPrompt: instruction,
-                skipWIAN: true,
-                quietName: `PaletteGen_${Date.now()}`,
-                quietToLoud: false,
-                jsonSchema
-            });
-        } catch (e) {
-            console.warn('[Dialogue Colors] LLM palette generation failed:', e);
-            return null;
-        }
+            // Get current profile name
+            const listResult = await SlashCommandParser.commands['profile-list'].callback();
+            const match = listResult?.match(/\*\s*(.+?)(?:\n|$)/);
+            if (match) originalProfile = match[1].trim();
 
-        if (!response || typeof response !== 'string') return null;
-        let jsonText = response.trim();
-        if (!jsonText.startsWith('[')) {
-            const match = jsonText.match(/\[[\s\S]*\]/);
-            if (!match) return null;
-            jsonText = match[0];
+            if (originalProfile === profileId) return await asyncOperation();
+
+            // Switch to target profile
+            await SlashCommandParser.commands['profile'].callback(
+                { await: true, timeout: 2000 },
+                profileId
+            );
+            switched = true;
+
+            return await asyncOperation();
+
+        } finally {
+            if (switched && originalProfile && originalProfile !== profileId) {
+                try {
+                    await SlashCommandParser.commands['profile'].callback(
+                        { await: true, timeout: 2000 },
+                        originalProfile
+                    );
+                } catch (e) {
+                    console.error('[DC] Failed to restore profile:', e);
+                    toast.warning(`Could not restore profile "${originalProfile}"`);
+                }
+            }
         }
-        let parsed;
-        try {
-            parsed = JSON.parse(jsonText);
-        } catch {
-            return null;
-        }
-        if (!Array.isArray(parsed)) return null;
-        const sanitized = sanitizeGeneratedPalette(parsed, profile, count);
-        return sanitized.length ? sanitized : null;
     }
 
     async function colorizeMessageWithLLM(rawText, messageSpeakerName = '') {
         if (typeof generateQuietPrompt !== 'function') return null;
 
-        // Build character-color list from known entries
-        const charList = [];
-        const trimmedSpeaker = String(messageSpeakerName ?? '').trim();
-        let defaultSpeakerColor = null;
-        for (const entry of Object.values(characterColors)) {
-            const color = getEntryEffectiveColor(entry);
-            charList.push(`${entry.name}=${color}`);
-            if (entry.name.toLowerCase() === trimmedSpeaker.toLowerCase()) {
-                defaultSpeakerColor = color;
+        const targetProfile = settings.llmConnectionProfile;
+        return await withProfileSwitch(targetProfile, async () => {
+            // Build character-color list from known entries
+            const charList = [];
+            const trimmedSpeaker = String(messageSpeakerName ?? '').trim();
+            let defaultSpeakerColor = null;
+            for (const entry of Object.values(characterColors)) {
+                const color = getEntryEffectiveColor(entry);
+                charList.push(`${entry.name}=${color}`);
+                if (entry.name.toLowerCase() === trimmedSpeaker.toLowerCase()) {
+                    defaultSpeakerColor = color;
+                }
             }
-        }
-        if (!charList.length) return null;
+            if (!charList.length) return null;
 
-        if (!defaultSpeakerColor && trimmedSpeaker) {
-            const ensured = ensureCharacterEntry(trimmedSpeaker);
-            if (ensured?.entry) {
-                defaultSpeakerColor = getEntryEffectiveColor(ensured.entry);
-                charList.push(`${ensured.entry.name}=${defaultSpeakerColor}`);
+            if (!defaultSpeakerColor && trimmedSpeaker) {
+                const ensured = ensureCharacterEntry(trimmedSpeaker);
+                if (ensured?.entry) {
+                    defaultSpeakerColor = getEntryEffectiveColor(ensured.entry);
+                    charList.push(`${ensured.entry.name}=${defaultSpeakerColor}`);
+                }
             }
-        }
 
-        const thoughtSymbols = String(settings.thoughtSymbols || '').trim();
-        const narratorColor = settings.narratorColor ? applyThemeReadabilityAndBrightness(settings.narratorColor) : null;
+            const thoughtSymbols = String(settings.thoughtSymbols || '').trim();
+            const narratorColor = settings.narratorColor ? applyThemeReadabilityAndBrightness(settings.narratorColor) : null;
 
-        const lines = [
-            'Add <font color=#RRGGBB> tags to dialogue in this roleplay message based on who is speaking.',
-            '',
-            `Characters: ${charList.join(', ')}`,
-        ];
-        if (thoughtSymbols) lines.push(`Also color inner thoughts wrapped in ${thoughtSymbols} symbols.`);
-        if (narratorColor) lines.push(`Narrator=${narratorColor} for narration text.`);
-        if (trimmedSpeaker && defaultSpeakerColor) lines.push(`Default speaker (message author): ${trimmedSpeaker}=${defaultSpeakerColor}`);
-        lines.push('');
-        lines.push('Rules:');
-        lines.push('- Wrap quoted dialogue (and its quote marks) in <font color=COLOR>...</font>');
-        lines.push('- Do not change any text content, only add <font> tags');
-        lines.push('- Return the modified text only, no commentary');
-        lines.push('');
-        lines.push(rawText);
+            const lines = [
+                'Add <font color=#RRGGBB> tags to dialogue in this roleplay message based on who is speaking.',
+                '',
+                `Characters: ${charList.join(', ')}`,
+            ];
+            if (thoughtSymbols) lines.push(`Also color inner thoughts wrapped in ${thoughtSymbols} symbols.`);
+            if (narratorColor) lines.push(`Narrator=${narratorColor} for narration text.`);
+            if (trimmedSpeaker && defaultSpeakerColor) lines.push(`Default speaker (message author): ${trimmedSpeaker}=${defaultSpeakerColor}`);
+            lines.push('');
+            lines.push('Rules:');
+            lines.push('- Wrap quoted dialogue (and its quote marks) in <font color=COLOR>...</font>');
+            lines.push('- Do not change any text content, only add <font> tags');
+            lines.push('- Return the modified text only, no commentary');
+            lines.push('');
+            lines.push(rawText);
 
-        const instruction = lines.join('\n');
+            const instruction = lines.join('\n');
 
-        let response = '';
-        try {
-            response = await generateQuietPrompt({
-                quietPrompt: instruction,
-                skipWIAN: true,
-                quietName: `DialogueColorize_${Date.now()}`,
-                quietToLoud: false,
-            });
-        } catch (e) {
-            console.warn('[Dialogue Colors] LLM colorize failed:', e);
-            return null;
-        }
+            let response = '';
+            try {
+                response = await generateQuietPrompt({
+                    quietPrompt: instruction,
+                    skipWIAN: true,
+                    quietName: `DialogueColorize_${Date.now()}`,
+                    quietToLoud: false,
+                });
+            } catch (e) {
+                console.warn('[Dialogue Colors] LLM colorize failed:', e);
+                return null;
+            }
 
-        if (!response || typeof response !== 'string') return null;
-        const cleaned = response.trim();
-        if (!cleaned || !/<font\b/i.test(cleaned)) return null;
+            if (!response || typeof response !== 'string') return null;
+            const cleaned = response.trim();
+            if (!cleaned || !/<font\b/i.test(cleaned)) return null;
 
-        // Extract used assignments from the font tags in the response
-        const usedAssignments = [];
-        const usedColors = new Set();
-        const fontColorRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?/gi;
-        let fcMatch;
-        while ((fcMatch = fontColorRegex.exec(cleaned)) !== null) {
-            const color = fcMatch[1].toLowerCase();
-            if (!usedColors.has(color)) {
-                usedColors.add(color);
-                // Find the character name for this color
-                for (const entry of Object.values(characterColors)) {
-                    if (getEntryEffectiveColor(entry).toLowerCase() === color) {
-                        usedAssignments.push({ name: entry.name, color: getEntryEffectiveColor(entry) });
-                        break;
+            // Extract used assignments from the font tags in the response
+            const usedAssignments = [];
+            const usedColors = new Set();
+            const fontColorRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?/gi;
+            let fcMatch;
+            while ((fcMatch = fontColorRegex.exec(cleaned)) !== null) {
+                const color = fcMatch[1].toLowerCase();
+                if (!usedColors.has(color)) {
+                    usedColors.add(color);
+                    // Find the character name for this color
+                    for (const entry of Object.values(characterColors)) {
+                        if (getEntryEffectiveColor(entry).toLowerCase() === color) {
+                            usedAssignments.push({ name: entry.name, color: getEntryEffectiveColor(entry) });
+                            break;
+                        }
+                    }
+                    if (narratorColor && color === narratorColor.toLowerCase() && !usedAssignments.some(a => a.name === 'Narrator')) {
+                        usedAssignments.push({ name: 'Narrator', color: narratorColor });
                     }
                 }
-                if (narratorColor && color === narratorColor.toLowerCase() && !usedAssignments.some(a => a.name === 'Narrator')) {
-                    usedAssignments.push({ name: 'Narrator', color: narratorColor });
-                }
             }
-        }
 
-        // Append [COLORS:] block if not already present
-        let finalText = cleaned;
-        if (usedAssignments.length && !/\[COLORS?:([^\]]*)\]/i.test(finalText)) {
-            finalText += `\n[COLORS:${usedAssignments.map(({ name, color }) => `${name}=${color}`).join(',')}]`;
-        }
+            // Append [COLORS:] block if not already present
+            let finalText = cleaned;
+            if (usedAssignments.length && !/\[COLORS?:([^\]]*)\]/i.test(finalText)) {
+                finalText += `\n[COLORS:${usedAssignments.map(({ name, color }) => `${name}=${color}`).join(',')}]`;
+            }
 
-        return {
-            updatedText: finalText,
-            changed: finalText !== rawText,
-            usedAssignments,
-        };
+            return {
+                updatedText: finalText,
+                changed: finalText !== rawText,
+                usedAssignments,
+            };
+        });
+    }
+
+    async function colorizeMultipleMessagesWithLLM(messageBatch) {
+        // messageBatch = [{ rawText, speakerName, msgIndex }, ...]
+        if (!messageBatch.length || typeof generateQuietPrompt !== 'function') return [];
+
+        const targetProfile = settings.llmConnectionProfile;
+
+        return await withProfileSwitch(targetProfile, async () => {
+            // Build character-color list
+            const charList = [];
+            for (const entry of Object.values(characterColors)) {
+                const color = getEntryEffectiveColor(entry);
+                charList.push(`${entry.name}=${color}`);
+            }
+            if (!charList.length) return [];
+
+            const thoughtSymbols = String(settings.thoughtSymbols || '').trim();
+            const narratorColor = settings.narratorColor ?
+                applyThemeReadabilityAndBrightness(settings.narratorColor) : null;
+
+            // Build instruction
+            const lines = [
+                'Add <font color=#RRGGBB> tags to dialogue in these roleplay messages.',
+                '',
+                `Characters: ${charList.join(', ')}`,
+            ];
+            if (thoughtSymbols) lines.push(`Also color inner thoughts wrapped in ${thoughtSymbols} symbols.`);
+            if (narratorColor) lines.push(`Narrator=${narratorColor} for narration text.`);
+            lines.push('');
+            lines.push('Rules:');
+            lines.push('- Wrap quoted dialogue (and its quote marks) in <font color=COLOR>...</font>');
+            lines.push('- Do not change any text content, only add <font> tags');
+            lines.push('- Return all messages in order with [MSG:N] markers preserved');
+            lines.push('');
+
+            // Add all messages with markers
+            messageBatch.forEach(({ rawText }, idx) => {
+                lines.push(`[MSG:${idx}]`);
+                lines.push(rawText);
+                lines.push('');
+            });
+
+            const instruction = lines.join('\n');
+
+            let response = '';
+            try {
+                response = await generateQuietPrompt({
+                    quietPrompt: instruction,
+                    skipWIAN: true,
+                    quietName: `DialogueColorize_Batch_${Date.now()}`,
+                    quietToLoud: false,
+                });
+            } catch (e) {
+                console.warn('[Dialogue Colors] Batch LLM colorize failed:', e);
+                return [];
+            }
+
+            if (!response || typeof response !== 'string') return [];
+
+            // Parse response - split by [MSG:N] markers
+            const results = [];
+            const msgBlocks = response.split(/\[MSG:(\d+)\]/);
+
+            for (let i = 1; i < msgBlocks.length; i += 2) {
+                const msgIdx = parseInt(msgBlocks[i], 10);
+                const colorizedText = msgBlocks[i + 1]?.trim();
+
+                if (isNaN(msgIdx) || msgIdx >= messageBatch.length) continue;
+                if (!colorizedText || !/<font\b/i.test(colorizedText)) continue;
+
+                // Extract used colors and append [COLORS:] block
+                const usedAssignments = [];
+                const usedColors = new Set();
+                const fontColorRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?/gi;
+                let match;
+                while ((match = fontColorRegex.exec(colorizedText)) !== null) {
+                    const color = match[1].toLowerCase();
+                    if (!usedColors.has(color)) {
+                        usedColors.add(color);
+                        for (const entry of Object.values(characterColors)) {
+                            if (getEntryEffectiveColor(entry).toLowerCase() === color) {
+                                usedAssignments.push({ name: entry.name, color: getEntryEffectiveColor(entry) });
+                                break;
+                            }
+                        }
+                        if (narratorColor && color === narratorColor.toLowerCase() &&
+                            !usedAssignments.some(a => a.name === 'Narrator')) {
+                            usedAssignments.push({ name: 'Narrator', color: narratorColor });
+                        }
+                    }
+                }
+
+                let finalText = colorizedText;
+                if (usedAssignments.length && !/\[COLORS?:([^\]]*)\]/i.test(finalText)) {
+                    finalText += `\n[COLORS:${usedAssignments.map(({ name, color }) => `${name}=${color}`).join(',')}]`;
+                }
+
+                results.push({
+                    msgIndex: messageBatch[msgIdx].msgIndex,
+                    updatedText: finalText,
+                    changed: true,
+                });
+            }
+
+            return results;
+        });
     }
 
     async function generateCustomPaletteFromWords(inputName = '', inputNotes = '') {
@@ -2453,6 +2607,61 @@
         }
     }
 
+    async function populateProfileDropdown() {
+        const select = document.getElementById('dc-llm-profile');
+        if (!select) return;
+
+        // Clear existing options except the first
+        while (select.options.length > 1) select.remove(1);
+
+        if (!SlashCommandParser?.commands?.['profile-list']) {
+            select.disabled = true;
+            select.title = 'Connection Manager not available';
+            return;
+        }
+
+        try {
+            const result = await SlashCommandParser.commands['profile-list'].callback();
+            if (!result || typeof result !== 'string') {
+                select.disabled = true;
+                return;
+            }
+
+            const lines = result.split('\n').filter(l => l.trim());
+            const profiles = lines.map(line => ({
+                name: line.replace(/^\*?\s*/, '').trim(),
+                isActive: line.startsWith('*')
+            }));
+
+            if (profiles.length === 0) {
+                select.disabled = true;
+                select.title = 'No connection profiles found';
+                return;
+            }
+
+            profiles.forEach(({ name, isActive }) => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name + (isActive ? ' (current)' : '');
+                select.appendChild(opt);
+            });
+
+            select.value = settings.llmConnectionProfile || '';
+            if (select.selectedIndex === -1) {
+                select.value = '';
+                settings.llmConnectionProfile = null;
+                saveData();
+            }
+
+            select.disabled = false;
+
+        } catch (e) {
+            console.warn('[DC] Failed to load profiles:', e);
+            select.disabled = true;
+            select.title = 'Failed to load profiles';
+        }
+    }
+
     async function colorizeMessages(targetMode = 'all') {
         const ctx = getContext();
         const chat = ctx?.chat || [];
@@ -2491,30 +2700,62 @@
                 if (existingFontColors.size > 0) continue;
                 eligibleIndices.push(i);
             }
-            for (let idx = 0; idx < eligibleIndices.length; idx++) {
-                const i = eligibleIndices[idx];
-                const msg = chat[i];
-                const rawText = msg.mes || '';
-                toast.info(`Colorizing message ${idx + 1}/${eligibleIndices.length}...`, '', { timeOut: 3000 });
+            // Batch colorize with LLM first
+            if (eligibleIndices.length > 0) {
+                const messageBatch = eligibleIndices.map(i => ({
+                    rawText: chat[i].mes || '',
+                    speakerName: chat[i].name,
+                    msgIndex: i
+                }));
 
-                // Try LLM path first, fall back to regex
-                let result = null;
+                toast.info(`Colorizing ${messageBatch.length} message${messageBatch.length !== 1 ? 's' : ''} in batch...`, '', { timeOut: 3000 });
+
+                let batchResults = [];
                 try {
-                    result = await colorizeMessageWithLLM(rawText, msg.name);
+                    batchResults = await colorizeMultipleMessagesWithLLM(messageBatch);
                 } catch (e) {
-                    console.warn('[Dialogue Colors] LLM colorize failed for message, falling back to regex:', e);
-                }
-                if (!result || !result.changed) {
-                    result = colorizeMessageText(rawText, msg.name, { autoAddMessageSpeaker: true });
-                    if (result.createdCharacters) createdCharacters = true;
-                }
-                if (!result.changed) {
-                    if (result.hadDialogueMatches && !result.hadResolvableSpeaker) skippedNoColor++;
-                    continue;
+                    console.warn('[Dialogue Colors] Batch colorize failed:', e);
                 }
 
-                msg.mes = result.updatedText;
-                colorizedCount++;
+                // Apply batch results
+                const processedIndices = new Set();
+                for (const result of batchResults) {
+                    if (result.changed && result.msgIndex != null) {
+                        chat[result.msgIndex].mes = result.updatedText;
+                        colorizedCount++;
+                        processedIndices.add(result.msgIndex);
+                    }
+                }
+
+                // Fallback: process messages that failed in batch individually
+                for (let idx = 0; idx < eligibleIndices.length; idx++) {
+                    const i = eligibleIndices[idx];
+                    if (processedIndices.has(i)) continue;
+
+                    const msg = chat[i];
+                    const rawText = msg.mes || '';
+
+                    // Try individual LLM, then regex fallback
+                    let result = null;
+                    try {
+                        result = await colorizeMessageWithLLM(rawText, msg.name);
+                    } catch (e) {
+                        console.warn('[Dialogue Colors] Individual LLM colorize failed:', e);
+                    }
+
+                    if (!result || !result.changed) {
+                        result = colorizeMessageText(rawText, msg.name, { autoAddMessageSpeaker: true });
+                        if (result.createdCharacters) createdCharacters = true;
+                    }
+
+                    if (!result.changed) {
+                        if (result.hadDialogueMatches && !result.hadResolvableSpeaker) skippedNoColor++;
+                        continue;
+                    }
+
+                    msg.mes = result.updatedText;
+                    colorizedCount++;
+                }
             }
 
             if (createdCharacters) {
@@ -2617,17 +2858,18 @@
                         lastMsg.mes = result.updatedText;
                         lastProcessedMessageSignature = `${chat.length}|${sigId}|${lastMsg.mes}`;
 
-                        const refreshChat = () => {
-                            if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
-                                eventSource.emit(event_types.CHAT_CHANGED);
-                            }
-                        };
-
                         const ctx2 = getContext();
                         if (typeof ctx2?.saveChat === 'function') {
-                            Promise.resolve(ctx2.saveChat()).then(refreshChat).catch(refreshChat);
-                        } else {
-                            refreshChat();
+                            await ctx2.saveChat();
+                        }
+
+                        // Force immediate reload
+                        if (typeof ctx2?.reloadCurrentChat === 'function') {
+                            await ctx2.reloadCurrentChat();
+                        } else if (typeof eventSource?.emit === 'function' && event_types?.MESSAGE_UPDATED) {
+                            eventSource.emit(event_types.MESSAGE_UPDATED);
+                        } else if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
+                            eventSource.emit(event_types.CHAT_CHANGED);
                         }
                     }
                 }
@@ -2924,6 +3166,7 @@
         if ($('dc-share-global')) $('dc-share-global').checked = settings.shareColorsGlobally || false;
         if ($('dc-css-effects')) $('dc-css-effects').checked = settings.cssEffects || false;
         if ($('dc-llm-palette')) $('dc-llm-palette').checked = settings.llmEnhanceCustomPalettes !== false;
+        if ($('dc-llm-profile')) $('dc-llm-profile').value = settings.llmConnectionProfile || '';
         if ($('dc-disable-toasts')) $('dc-disable-toasts').checked = settings.disableToasts || false;
         if ($('dc-theme')) $('dc-theme').value = settings.themeMode;
         if ($('dc-brightness')) { $('dc-brightness').value = settings.brightness || 0; }
@@ -2978,6 +3221,7 @@
                         <label class="checkbox_label"><input type="checkbox" id="dc-disable-narration" data-help="Skip narrator color assignment in generated prompt instructions."><span>Disable narration coloring</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-share-global" data-help="Use one shared color table for all chats instead of per-chat storage."><span>Share colors across all chats</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="dc-llm-palette" data-help="Use LLM assistance to refine generated custom palettes."><span>Enhance generated palettes with LLM</span></label>
+                        <div style="display:flex;gap:4px;align-items:center;margin-top:4px;"><label style="width:50px;">LLM Profile:</label><select id="dc-llm-profile" class="text_pole" style="flex:1;" data-help="Connection profile to use for LLM colorization. 'Use Current' uses the active profile."><option value="">Use Current Profile</option></select></div>
                         <label class="checkbox_label"><input type="checkbox" id="dc-disable-toasts" data-help="Suppress all pop-up toast notifications from this extension."><span>Disable toast notifications</span></label>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;" data-help="Set narrator fallback color used when narration coloring is enabled."><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Clear custom narrator color and return to default.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;" data-help="Symbols used to detect and color inner-thought dialogue."><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Append another thought symbol to the list.">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Remove all thought symbols.">Clear</button></div>
@@ -3055,6 +3299,7 @@
         $('dc-share-global').onchange = e => { settings.shareColorsGlobally = e.target.checked; saveData(); loadData(); updateCharList(); injectPrompt(); };
         $('dc-css-effects').onchange = e => { settings.cssEffects = e.target.checked; saveData(); injectPrompt(); };
         $('dc-llm-palette').onchange = e => { settings.llmEnhanceCustomPalettes = e.target.checked; saveData(); };
+        $('dc-llm-profile').onchange = e => { settings.llmConnectionProfile = e.target.value || null; saveData(); };
         $('dc-disable-toasts').onchange = e => { settings.disableToasts = e.target.checked; saveData(); };
         $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); if (settings.autoRecolor) recolorAllMessages(); };
         $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
@@ -3325,6 +3570,7 @@
         eventSource.on(event_types.MESSAGE_RECEIVED, runtimeState.eventHandlers.newMessage);
         eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, runtimeState.eventHandlers.newMessage);
         eventSource.on(event_types.CHAT_CHANGED, runtimeState.eventHandlers.chatChanged);
+        eventSource.on(event_types.CHAT_CHANGED, () => populateProfileDropdown());
         runtimeState.eventsRegistered = true;
     }
 
@@ -3361,6 +3607,7 @@
                 createUI();
                 clearDomCache();
                 injectPrompt();
+                populateProfileDropdown();
             } else if (waitAttempts > 60) {
                 clearInterval(waitUI);
             }
