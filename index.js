@@ -2224,6 +2224,23 @@
         button.textContent = button.dataset.defaultLabel || 'Colorize';
     }
 
+    function showAutoColorizeIndicator(mesElement) {
+        if (!mesElement) return;
+        let indicator = mesElement.querySelector('.dc-auto-colorize-indicator');
+        if (indicator) return;
+        indicator = document.createElement('div');
+        indicator.className = 'dc-auto-colorize-indicator';
+        indicator.textContent = 'Auto-colorizing…';
+        mesElement.style.position = mesElement.style.position || 'relative';
+        mesElement.appendChild(indicator);
+    }
+
+    function hideAutoColorizeIndicator(mesElement) {
+        if (!mesElement) return;
+        const indicator = mesElement.querySelector('.dc-auto-colorize-indicator');
+        if (indicator) indicator.remove();
+    }
+
     function parseColorAssignmentsFromText(text) {
         const latestByColor = {};
         const namesByColor = {};
@@ -2789,6 +2806,8 @@
             if (!foundColorBlock && settings.autoColorize && !lastMsg.is_user) {
                 const hasExistingColors = collectFontColorsFromText(text).size > 0;
                 if (!hasExistingColors) {
+                    const lastMesEl = document.querySelector('.mes:last-child');
+                    showAutoColorizeIndicator(lastMesEl);
                     syncAllEffectiveColors();
                     // Pre-register all unique non-user speaker names for attribution
                     for (const msg of chat) {
@@ -2831,6 +2850,7 @@
                             eventSource.emit(event_types.CHAT_CHANGED);
                         }
                     }
+                    hideAutoColorizeIndicator(lastMesEl);
                 }
             }
         }, 600);
@@ -3544,6 +3564,21 @@
             mobileStyle = document.createElement('style');
             mobileStyle.id = 'dc-mobile-style';
             mobileStyle.textContent = `
+            .dc-auto-colorize-indicator {
+                position: absolute;
+                top: 4px;
+                right: 8px;
+                font-size: 0.75em;
+                color: var(--SmartThemeQuoteColor, #888);
+                opacity: 0.8;
+                animation: dc-pulse 1.2s ease-in-out infinite;
+                pointer-events: none;
+                z-index: 1;
+            }
+            @keyframes dc-pulse {
+                0%, 100% { opacity: 0.4; }
+                50% { opacity: 1; }
+            }
             @media (max-width: 768px) {
                 #dc-ext .menu_button { min-height: 36px; min-width: 36px; font-size: 0.85em; }
                 #dc-ext input[type="checkbox"] { width: 18px; height: 18px; }
