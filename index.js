@@ -2495,7 +2495,7 @@
                 const i = eligibleIndices[idx];
                 const msg = chat[i];
                 const rawText = msg.mes || '';
-                toast.info(`Colorizing message ${idx + 1}/${eligibleIndices.length}...`, { timeOut: 3000 });
+                toast.info(`Colorizing message ${idx + 1}/${eligibleIndices.length}...`, '', { timeOut: 3000 });
 
                 // Try LLM path first, fall back to regex
                 let result = null;
