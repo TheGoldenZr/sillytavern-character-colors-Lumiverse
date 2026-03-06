@@ -35,6 +35,10 @@
         return escapeHtml(s);
     }
 
+    function escapeRegExp(s) {
+        return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     function normalizeBoolean(value, fallback = false) {
         if (typeof value === 'boolean') return value;
         if (typeof value === 'number') return value !== 0;
@@ -1917,6 +1921,201 @@
         return colors;
     }
 
+    function parseNamedColorAssignmentsFromText(text) {
+        const assignments = [];
+        const colorBlockRegex = /\[COLORS?:([^\]]*)\]/gi;
+        let blockMatch;
+        while ((blockMatch = colorBlockRegex.exec(text || '')) !== null) {
+            for (const pair of blockMatch[1].split(',')) {
+                const eqIdx = pair.indexOf('=');
+                if (eqIdx === -1) continue;
+                const rawName = pair.substring(0, eqIdx).trim();
+                const { name, nicknames } = parseNameWithNicknames(rawName);
+                const color = normalizeHexColor(pair.substring(eqIdx + 1).trim(), null);
+                if (!name || !color) continue;
+                assignments.push({ name, aliases: nicknames, color });
+            }
+        }
+        return assignments;
+    }
+
+    function buildDialogueRegex() {
+        const delimiters = new Set(['"']);
+        for (const ch of (settings.thoughtSymbols || '')) {
+            if (ch.trim()) delimiters.add(ch);
+        }
+        const patterns = [];
+        for (const delimiter of delimiters) {
+            const escaped = escapeRegExp(delimiter);
+            patterns.push(`${escaped}([^${escaped}]+)${escaped}`);
+        }
+        return patterns.length ? new RegExp(`(${patterns.join('|')})`, 'g') : null;
+    }
+
+    function registerLookupAssignment(lookup, name, color, aliases = [], preserveExisting = false) {
+        const normalizedName = String(name ?? '').trim();
+        const normalizedColor = normalizeHexColor(color, null);
+        if (!normalizedName || !normalizedColor) return;
+        const canonicalKey = normalizedName.toLowerCase();
+        const assignment = { key: canonicalKey, name: normalizedName, color: normalizedColor };
+        const lookupNames = [normalizedName, ...normalizeAliases(aliases)];
+        for (const lookupName of lookupNames) {
+            const lookupKey = lookupName.toLowerCase();
+            if (!lookupKey) continue;
+            if (preserveExisting && lookup.has(lookupKey)) continue;
+            lookup.set(lookupKey, assignment);
+        }
+    }
+
+    function buildNameColorLookup(extraAssignments = []) {
+        const lookup = new Map();
+        for (const entry of Object.values(characterColors)) {
+            registerLookupAssignment(lookup, entry.name, getEntryEffectiveColor(entry), entry.aliases);
+        }
+        if (settings.narratorColor) {
+            registerLookupAssignment(lookup, 'Narrator', applyThemeReadabilityAndBrightness(settings.narratorColor));
+        }
+        for (const assignment of Array.isArray(extraAssignments) ? extraAssignments : []) {
+            registerLookupAssignment(lookup, assignment.name, applyThemeReadabilityAndBrightness(assignment.color), assignment.aliases, true);
+        }
+        return lookup;
+    }
+
+    const SPEAKER_ATTRIBUTION_VERBS = [
+        'said', 'says', 'asked', 'asks', 'replied', 'replies', 'whispered', 'whispers', 'murmured', 'murmurs',
+        'shouted', 'shouts', 'answered', 'answers', 'added', 'adds', 'continued', 'continues', 'called', 'calls',
+        'growled', 'growls', 'snapped', 'snaps', 'yelled', 'yells', 'muttered', 'mutters', 'sighed', 'sighs',
+        'laughed', 'laughs', 'remarked', 'remarks', 'noted', 'notes'
+    ];
+    const SPEAKER_ATTRIBUTION_PATTERN = SPEAKER_ATTRIBUTION_VERBS.join('|');
+
+    function normalizeSpeakerContextLine(textSlice, takeLast = true) {
+        const withBreaks = String(textSlice ?? '').replace(/<br\s*\/?>/gi, '\n');
+        const lineParts = withBreaks.split(/\r?\n/);
+        const selectedLine = takeLast ? lineParts[lineParts.length - 1] : lineParts[0];
+        return String(selectedLine ?? '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/[*_`~]/g, '')
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+    }
+
+    function matchesSpeakerBeforeLine(line, speakerKey) {
+        if (!line || !speakerKey) return false;
+        const escapedKey = escapeRegExp(speakerKey);
+        if (new RegExp(`${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s*(?::|[-—–])\\s*$`, 'i').test(line)) return true;
+        return new RegExp(`${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,30}$`, 'i').test(line);
+    }
+
+    function matchesSpeakerAfterLine(line, speakerKey) {
+        if (!line || !speakerKey) return false;
+        const escapedKey = escapeRegExp(speakerKey);
+        if (new RegExp(`^[-—–,:;\\s]*${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b`, 'i').test(line)) return true;
+        return new RegExp(`^[-—–,:;\\s]*(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,20}${escapedKey}(?:\\s|$|[.!?,])`, 'i').test(`${line} `);
+    }
+
+    function findSpeakerAssignmentNearSegment(text, segmentStart, segmentEnd, lookup, sortedLookupKeys) {
+        const beforeLine = normalizeSpeakerContextLine(text.slice(Math.max(0, segmentStart - 180), segmentStart), true);
+        const afterLine = normalizeSpeakerContextLine(text.slice(segmentEnd, Math.min(text.length, segmentEnd + 140)), false);
+        for (const speakerKey of sortedLookupKeys) {
+            const assignment = lookup.get(speakerKey);
+            if (!assignment) continue;
+            if (matchesSpeakerBeforeLine(beforeLine, speakerKey) || matchesSpeakerAfterLine(afterLine, speakerKey)) {
+                return assignment;
+            }
+        }
+        return null;
+    }
+
+    function ensureCharacterEntry(name, color) {
+        const trimmedName = String(name ?? '').trim();
+        if (!trimmedName) return { key: '', entry: null, created: false };
+        const key = trimmedName.toLowerCase();
+        if (characterColors[key]) return { key, entry: characterColors[key], created: false };
+        const baseColor = normalizeHexColor(color, suggestColorForName(trimmedName) || getNextColor());
+        characterColors[key] = { color: applyThemeReadabilityAndBrightness(baseColor), baseColor, name: trimmedName, locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
+        return { key, entry: characterColors[key], created: true };
+    }
+
+    function colorizeMessageText(rawText, messageSpeakerName = '', options = {}) {
+        const dialogueRegex = buildDialogueRegex();
+        if (!dialogueRegex) {
+            return { updatedText: rawText, changed: false, hadDialogueMatches: false, hadResolvableSpeaker: false, createdCharacters: false, usedAssignments: [] };
+        }
+
+        const localAssignments = parseNamedColorAssignmentsFromText(rawText);
+        const lookup = buildNameColorLookup(localAssignments);
+        const sortedLookupKeys = Array.from(lookup.keys()).sort((left, right) => right.length - left.length);
+        const trimmedSpeakerName = String(messageSpeakerName ?? '').trim();
+        let createdCharacters = false;
+        let defaultSpeaker = trimmedSpeakerName ? (lookup.get(trimmedSpeakerName.toLowerCase()) || null) : null;
+
+        if (!defaultSpeaker && localAssignments.length === 1) {
+            defaultSpeaker = lookup.get(localAssignments[0].name.toLowerCase()) || null;
+        }
+
+        const ensureDefaultSpeaker = () => {
+            if (defaultSpeaker || !options.autoAddMessageSpeaker || !trimmedSpeakerName) return defaultSpeaker;
+            const ensured = ensureCharacterEntry(trimmedSpeakerName);
+            if (!ensured?.entry) return null;
+            if (ensured.created) createdCharacters = true;
+            registerLookupAssignment(lookup, ensured.entry.name, getEntryEffectiveColor(ensured.entry), ensured.entry.aliases);
+            defaultSpeaker = lookup.get(trimmedSpeakerName.toLowerCase()) || lookup.get(ensured.key) || null;
+            if (defaultSpeaker && !sortedLookupKeys.includes(ensured.key)) {
+                sortedLookupKeys.push(ensured.key);
+                sortedLookupKeys.sort((left, right) => right.length - left.length);
+            }
+            return defaultSpeaker;
+        };
+
+        const usedAssignments = [];
+        const usedCanonicalKeys = new Set();
+        let hadDialogueMatches = false;
+        let hadResolvableSpeaker = false;
+        let lastResolvedSpeakerKey = defaultSpeaker?.key || '';
+
+        const updatedText = rawText.replace(dialogueRegex, (match, ...args) => {
+            hadDialogueMatches = true;
+            const offset = args[args.length - 2];
+            const explicitSpeaker = findSpeakerAssignmentNearSegment(rawText, offset, offset + match.length, lookup, sortedLookupKeys);
+            const beforeLine = normalizeSpeakerContextLine(rawText.slice(Math.max(0, offset - 180), offset), true);
+            const hasMeaningfulPrefix = /[a-z0-9]/i.test(beforeLine);
+
+            let assignment = explicitSpeaker;
+            if (!assignment && !hasMeaningfulPrefix && lastResolvedSpeakerKey) {
+                assignment = lookup.get(lastResolvedSpeakerKey) || null;
+            }
+            if (!assignment) {
+                assignment = defaultSpeaker || ensureDefaultSpeaker();
+            }
+            if (!assignment) return match;
+
+            hadResolvableSpeaker = true;
+            lastResolvedSpeakerKey = assignment.key;
+            if (!usedCanonicalKeys.has(assignment.key)) {
+                usedCanonicalKeys.add(assignment.key);
+                usedAssignments.push({ name: assignment.name, color: assignment.color });
+            }
+            return `<font color="${assignment.color}">${match}</font>`;
+        });
+
+        let finalText = updatedText;
+        if (updatedText !== rawText && usedAssignments.length && !/\[COLORS?:([^\]]*)\]/i.test(finalText)) {
+            finalText += `\n[COLORS:${usedAssignments.map(({ name, color }) => `${name}=${color}`).join(',')}]`;
+        }
+
+        return {
+            updatedText: finalText,
+            changed: finalText !== rawText,
+            hadDialogueMatches,
+            hadResolvableSpeaker,
+            createdCharacters,
+            usedAssignments
+        };
+    }
+
     async function recolorAllMessages() {
         const ctx = getContext();
         const chat = ctx?.chat || [];
@@ -2070,43 +2269,12 @@
         try {
             syncAllEffectiveColors();
 
-            // Build name → color lookup from characterColors (including aliases)
-            const nameToColor = {};
-            for (const entry of Object.values(characterColors)) {
-                const adjusted = normalizeHexColor(entry.color);
-                nameToColor[entry.name.toLowerCase()] = adjusted;
-                for (const alias of (entry.aliases || [])) {
-                    nameToColor[alias.toLowerCase()] = adjusted;
-                }
-            }
-            if (settings.narratorColor) {
-                nameToColor['narrator'] = applyThemeReadabilityAndBrightness(settings.narratorColor);
-            }
-
-            // Build dialogue regex from thought symbols + quote marks
-            const delimiters = new Set();
-            delimiters.add('"');
-            const symbols = settings.thoughtSymbols || '';
-            for (const ch of symbols) {
-                if (ch.trim()) delimiters.add(ch);
-            }
-            // Build alternation: for each delimiter d, match d([^d]+)d
-            const patterns = [];
-            for (const d of delimiters) {
-                const escaped = d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                patterns.push(`${escaped}([^${escaped}]+)${escaped}`);
-            }
-            if (!patterns.length) {
-                toast.info('No dialogue delimiters configured.');
-                return;
-            }
-            const dialogueRegex = new RegExp(`(${patterns.join('|')})`, 'g');
-
             // Determine message range
             const startIdx = targetMode === 'last' ? Math.max(0, chat.length - 1) : 0;
 
             let colorizedCount = 0;
             let skippedNoColor = 0;
+            let createdCharacters = false;
             for (let i = startIdx; i < chat.length; i++) {
                 const msg = chat[i];
                 if (!msg || msg.is_user) continue;
@@ -2117,34 +2285,27 @@
                 const existingFontColors = collectFontColorsFromText(rawText);
                 if (existingFontColors.size > 0) continue;
 
-                // Get speaker color
-                const speakerName = (msg.name || '').toLowerCase();
-                const color = nameToColor[speakerName];
-                if (!color) { skippedNoColor++; continue; }
-
-                // Replace dialogue/thought patterns with colored versions
-                let updated = rawText.replace(dialogueRegex, (match) => {
-                    return `<font color="${color}">${match}</font>`;
-                });
-
-                if (updated === rawText) continue; // No dialogue found
-
-                // Append [COLORS:] block if missing
-                const colorBlockRegex = /\[COLORS?:([^\]]*)\]/gi;
-                if (!colorBlockRegex.test(updated)) {
-                    const displayName = msg.name || speakerName;
-                    updated += `\n[COLORS:${displayName}=${color}]`;
+                const result = colorizeMessageText(rawText, msg.name, { autoAddMessageSpeaker: true });
+                if (result.createdCharacters) createdCharacters = true;
+                if (!result.changed) {
+                    if (result.hadDialogueMatches && !result.hadResolvableSpeaker) skippedNoColor++;
+                    continue;
                 }
 
-                msg.mes = updated;
+                msg.mes = result.updatedText;
                 colorizedCount++;
+            }
+
+            if (createdCharacters) {
+                saveHistory();
+                saveData(); updateCharList(); injectPrompt();
             }
 
             // Persist and reload
             if (colorizedCount > 0) {
                 if (typeof ctx?.saveChat === 'function') await ctx.saveChat();
                 if (typeof ctx?.reloadCurrentChat === 'function') {
-                    toast.info(`Colorized ${colorizedCount} message${colorizedCount !== 1 ? 's' : ''}${skippedNoColor > 0 ? ` (${skippedNoColor} skipped — no color assigned)` : ''}. Reloading chat...`);
+                    toast.info(`Colorized ${colorizedCount} message${colorizedCount !== 1 ? 's' : ''}${skippedNoColor > 0 ? ` (${skippedNoColor} skipped — no speaker/color match)` : ''}. Reloading chat...`);
                     await ctx.reloadCurrentChat();
                 } else if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
                     toast.info(`Colorized ${colorizedCount} message${colorizedCount !== 1 ? 's' : ''}. Refreshing chat...`);
@@ -2153,7 +2314,7 @@
                     toast.info(`Colorized ${colorizedCount} message${colorizedCount !== 1 ? 's' : ''}.`);
                 }
             } else if (skippedNoColor > 0) {
-                toast.info(`No uncolored dialogue found; ${skippedNoColor} message${skippedNoColor !== 1 ? 's' : ''} skipped (no color assigned for speaker).`);
+                toast.info(`No uncolored dialogue found; ${skippedNoColor} message${skippedNoColor !== 1 ? 's' : ''} skipped (no known speaker/color could be resolved).`);
             } else {
                 toast.info('No uncolored messages found.');
             }
@@ -2207,44 +2368,27 @@
             if (!foundColorBlock && settings.autoColorize && !lastMsg.is_user) {
                 const hasExistingColors = collectFontColorsFromText(text).size > 0;
                 if (!hasExistingColors) {
-                    // Auto-add speaker to characterColors if missing
-                    const speakerName = (lastMsg.name || '').trim();
-                    const speakerKey = speakerName.toLowerCase();
-                    if (speakerName && !characterColors[speakerKey]) {
-                        addCharacter(speakerName);
+                    syncAllEffectiveColors();
+                    const result = colorizeMessageText(text, lastMsg.name, { autoAddMessageSpeaker: true });
+                    if (result.createdCharacters) {
+                        saveHistory();
+                        saveData(); updateCharList(); injectPrompt();
                     }
-                    const entry = characterColors[speakerKey];
-                    if (entry) {
-                        const color = getEntryEffectiveColor(entry);
-                        // Build dialogue regex (same logic as colorizeMessages)
-                        const delimiters = new Set(['"']);
-                        for (const ch of (settings.thoughtSymbols || '')) {
-                            if (ch.trim()) delimiters.add(ch);
-                        }
-                        const patterns = [];
-                        for (const d of delimiters) {
-                            const escaped = d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                            patterns.push(`${escaped}([^${escaped}]+)${escaped}`);
-                        }
-                        if (patterns.length) {
-                            const dialogueRegex = new RegExp(`(${patterns.join('|')})`, 'g');
-                            const updated = text.replace(dialogueRegex, match =>
-                                `<font color="${color}">${match}</font>`
-                            );
-                            if (updated !== text) {
-                                lastMsg.mes = updated;
-                                // Update DOM directly (same pattern as stripColorBlockFromElement)
-                                const lastMsgEl = document.querySelector('.mes:last-child .mes_text');
-                                if (lastMsgEl) {
-                                    lastMsgEl.innerHTML = lastMsgEl.innerHTML.replace(
-                                        dialogueRegex,
-                                        match => `<font color="${color}">${match}</font>`
-                                    );
-                                }
-                                // Save silently in background
-                                const ctx2 = getContext();
-                                if (typeof ctx2?.saveChat === 'function') ctx2.saveChat();
+                    if (result.changed) {
+                        lastMsg.mes = result.updatedText;
+                        lastProcessedMessageSignature = `${chat.length}|${sigId}|${lastMsg.mes}`;
+
+                        const refreshChat = () => {
+                            if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
+                                eventSource.emit(event_types.CHAT_CHANGED);
                             }
+                        };
+
+                        const ctx2 = getContext();
+                        if (typeof ctx2?.saveChat === 'function') {
+                            Promise.resolve(ctx2.saveChat()).then(refreshChat).catch(refreshChat);
+                        } else {
+                            refreshChat();
                         }
                     }
                 }

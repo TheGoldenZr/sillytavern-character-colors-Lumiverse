@@ -73,6 +73,11 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
+## What's New in 3.1.14
+
+- **Speaker-aware colorize fallback** — `Colorize` and the automatic fallback now resolve per-quote speakers from nearby labels/attributions and preserve established character colors instead of painting every quote with one speaker color.
+- **Better recovery for non-compliant generations** — messages with no `<font color>` tags and no `[COLORS:]` block can still be colorized when speakers are inferable, while newly seen main speakers are added automatically when needed.
+
 ## What's New in 3.1.8
 
 - **Disable toast notifications** — new toggle in the Behavior section suppresses all pop-up toasts (success, info, warning) from the extension. Error toasts still show so you never miss failures. Undo toasts are also suppressed when disabled.
