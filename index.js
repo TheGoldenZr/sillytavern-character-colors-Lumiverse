@@ -2091,7 +2091,15 @@
         'said', 'says', 'asked', 'asks', 'replied', 'replies', 'whispered', 'whispers', 'murmured', 'murmurs',
         'shouted', 'shouts', 'answered', 'answers', 'added', 'adds', 'continued', 'continues', 'called', 'calls',
         'growled', 'growls', 'snapped', 'snaps', 'yelled', 'yells', 'muttered', 'mutters', 'sighed', 'sighs',
-        'laughed', 'laughs', 'remarked', 'remarks', 'noted', 'notes'
+        'laughed', 'laughs', 'remarked', 'remarks', 'noted', 'notes',
+        'breathed', 'breathes', 'repeated', 'repeats', 'corrected', 'corrects',
+        'exclaimed', 'exclaims', 'declared', 'declares', 'hissed', 'hisses',
+        'groaned', 'groans', 'mused', 'muses', 'scoffed', 'scoffs',
+        'insisted', 'insists', 'demanded', 'demands', 'warned', 'warns',
+        'agreed', 'agrees', 'offered', 'offers', 'suggested', 'suggests',
+        'protested', 'protests', 'pleaded', 'pleads', 'urged', 'urges',
+        'admitted', 'admits', 'interrupted', 'interrupts', 'teased', 'teases',
+        'begged', 'begs', 'conceded', 'concedes', 'prompted', 'prompts'
     ];
     const SPEAKER_ATTRIBUTION_PATTERN = SPEAKER_ATTRIBUTION_VERBS.join('|');
 
@@ -2109,11 +2117,13 @@
             .toLowerCase();
     }
 
-    function isCompositeSpeakerContextMatch(line, matchStart, matchEnd) {
+    function isCompositeSpeakerContextMatch(line, matchStart, matchEnd, excludeComma = false) {
         const before = String(line ?? '').slice(0, matchStart);
         const after = String(line ?? '').slice(matchEnd).replace(/^\s*\([^\n)]{0,40}\)/, '');
-        if (/(?:&|\/|\+|,|\band\b)\s*$/i.test(before)) return true;
-        return /^\s*(?:&|\/|\+|,|\band\b)\s*/i.test(after);
+        const sepBefore = excludeComma ? /(?:&|\/|\+|\band\b)\s*$/i : /(?:&|\/|\+|,|\band\b)\s*$/i;
+        const sepAfter = excludeComma ? /^\s*(?:&|\/|\+|\band\b)\s*/i : /^\s*(?:&|\/|\+|,|\band\b)\s*/i;
+        if (sepBefore.test(before)) return true;
+        return sepAfter.test(after);
     }
 
     function matchesSpeakerBeforeLine(line, speakerKey) {
@@ -2136,17 +2146,20 @@
     function matchesSpeakerAfterLine(line, speakerKey) {
         if (!line || !speakerKey) return false;
         const escapedKey = escapeRegExp(speakerKey);
-        const patterns = [
-            new RegExp(`^[-—–,:;\\s]*${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b`, 'i'),
-            new RegExp(`^[-—–,:;\\s]*(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,20}${escapedKey}(?:\\s|$|[.!?,])`, 'i')
-        ];
+        const nameVerbPattern = new RegExp(`^[-—–,:;\\s]*${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b`, 'i');
+        const verbNamePattern = new RegExp(`^[-—–,:;\\s]*(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,20}${escapedKey}(?:\\s|$|[.!?,])`, 'i');
         const lineWithTerminator = `${line} `;
-        for (const pattern of patterns) {
-            const match = pattern.exec(lineWithTerminator);
-            if (!match) continue;
-            const matchStart = match.index;
-            const matchEnd = matchStart + match[0].length;
-            if (!isCompositeSpeakerContextMatch(lineWithTerminator, matchStart, matchEnd)) return true;
+
+        // Pattern 1: name-verb — verb directly follows name, composite check unnecessary
+        const match1 = nameVerbPattern.exec(lineWithTerminator);
+        if (match1) return true;
+
+        // Pattern 2: verb-name — need composite check but exclude commas
+        const match2 = verbNamePattern.exec(lineWithTerminator);
+        if (match2) {
+            const matchStart = match2.index;
+            const matchEnd = matchStart + match2[0].length;
+            if (!isCompositeSpeakerContextMatch(lineWithTerminator, matchStart, matchEnd, true)) return true;
         }
         return false;
     }
@@ -2164,24 +2177,35 @@
         return null;
     }
 
-    function findLastMentionedSpeakerInContext(text, segmentStart, lookup, sortedLookupKeys) {
-        const contextBefore = text.slice(Math.max(0, segmentStart - 300), segmentStart);
-        const cleaned = contextBefore.replace(/<[^>]+>/g, ' ').replace(/[*_`~]/g, '');
-        let lastFound = null;
-        let lastPos = -1;
+    function findClosestMentionedSpeakerInContext(text, segmentStart, segmentEnd, lookup, sortedLookupKeys) {
+        const beforeText = text.slice(Math.max(0, segmentStart - 300), segmentStart);
+        const afterText = text.slice(segmentEnd, Math.min(text.length, segmentEnd + 140));
+        const cleanBefore = beforeText.replace(/<[^>]+>/g, ' ').replace(/[*_`~]/g, '');
+        const cleanAfter = afterText.replace(/<[^>]+>/g, ' ').replace(/[*_`~]/g, '');
+
+        let bestAssignment = null;
+        let bestDistance = Infinity;
+
         for (const speakerKey of sortedLookupKeys) {
             const assignment = lookup.get(speakerKey);
             if (!assignment) continue;
             const regex = new RegExp(`\\b${escapeRegExp(speakerKey)}(?:'s?)?\\b`, 'gi');
+
+            // Search before-context: distance = chars from match end to quote start
             let match;
-            while ((match = regex.exec(cleaned)) !== null) {
-                if (match.index > lastPos) {
-                    lastPos = match.index;
-                    lastFound = assignment;
-                }
+            while ((match = regex.exec(cleanBefore)) !== null) {
+                const dist = cleanBefore.length - (match.index + match[0].length);
+                if (dist < bestDistance) { bestDistance = dist; bestAssignment = assignment; }
+            }
+
+            // Search after-context: distance = chars from quote end to match start
+            regex.lastIndex = 0;
+            while ((match = regex.exec(cleanAfter)) !== null) {
+                const dist = match.index;
+                if (dist < bestDistance) { bestDistance = dist; bestAssignment = assignment; }
             }
         }
-        return lastFound;
+        return bestAssignment;
     }
 
     function ensureCharacterEntry(name, color) {
@@ -2241,9 +2265,9 @@
             const hasMeaningfulPrefix = /[a-z0-9]/i.test(beforeLine);
 
             let assignment = explicitSpeaker;
-            // Tier 2: soft context - last mentioned character name before quote
-            if (!assignment && hasMeaningfulPrefix) {
-                assignment = findLastMentionedSpeakerInContext(rawText, offset, lookup, sortedLookupKeys);
+            // Tier 2: soft context - closest mentioned character name near quote
+            if (!assignment) {
+                assignment = findClosestMentionedSpeakerInContext(rawText, offset, offset + match.length, lookup, sortedLookupKeys);
             }
             // Tier 3: no name in prefix → carry forward previous speaker
             if (!assignment && lastResolvedSpeakerKey) {
