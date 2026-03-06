@@ -2097,7 +2097,8 @@
 
     function normalizeSpeakerContextLine(textSlice, takeLast = true) {
         const withBreaks = String(textSlice ?? '').replace(/<br\s*\/?>/gi, '\n');
-        const lineParts = withBreaks.split(/\r?\n/);
+        const lineParts = withBreaks.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (!lineParts.length) return '';
         const selectedLine = takeLast ? lineParts[lineParts.length - 1] : lineParts[0];
         return String(selectedLine ?? '')
             .replace(/<[^>]+>/g, ' ')
@@ -2163,6 +2164,26 @@
         return null;
     }
 
+    function findLastMentionedSpeakerInContext(text, segmentStart, lookup, sortedLookupKeys) {
+        const contextBefore = text.slice(Math.max(0, segmentStart - 300), segmentStart);
+        const cleaned = contextBefore.replace(/<[^>]+>/g, ' ').replace(/[*_`~]/g, '');
+        let lastFound = null;
+        let lastPos = -1;
+        for (const speakerKey of sortedLookupKeys) {
+            const assignment = lookup.get(speakerKey);
+            if (!assignment) continue;
+            const regex = new RegExp(`\\b${escapeRegExp(speakerKey)}(?:'s?)?\\b`, 'gi');
+            let match;
+            while ((match = regex.exec(cleaned)) !== null) {
+                if (match.index > lastPos) {
+                    lastPos = match.index;
+                    lastFound = assignment;
+                }
+            }
+        }
+        return lastFound;
+    }
+
     function ensureCharacterEntry(name, color) {
         const trimmedName = String(name ?? '').trim();
         if (!trimmedName) return { key: '', entry: null, created: false };
@@ -2220,9 +2241,20 @@
             const hasMeaningfulPrefix = /[a-z0-9]/i.test(beforeLine);
 
             let assignment = explicitSpeaker;
-            if (!assignment && !hasMeaningfulPrefix && lastResolvedSpeakerKey) {
-                assignment = lookup.get(lastResolvedSpeakerKey) || null;
+            // Tier 2: soft context - last mentioned character name before quote
+            if (!assignment && hasMeaningfulPrefix) {
+                assignment = findLastMentionedSpeakerInContext(rawText, offset, lookup, sortedLookupKeys);
             }
+            // Tier 3: no name in prefix → carry forward previous speaker
+            if (!assignment && lastResolvedSpeakerKey) {
+                const prefixMentionsSpeaker = hasMeaningfulPrefix && sortedLookupKeys.some(key =>
+                    new RegExp(`\\b${escapeRegExp(key)}\\b`, 'i').test(beforeLine)
+                );
+                if (!prefixMentionsSpeaker) {
+                    assignment = lookup.get(lastResolvedSpeakerKey) || null;
+                }
+            }
+            // Tier 4: default speaker
             if (!assignment) {
                 assignment = defaultSpeaker || ensureDefaultSpeaker();
             }
@@ -2405,6 +2437,17 @@
         try {
             syncAllEffectiveColors();
 
+            // Pre-register all unique non-user speaker names so attribution can find them
+            const allSpeakers = new Set();
+            for (const msg of chat) {
+                if (msg && !msg.is_user && msg.name) allSpeakers.add(msg.name.trim());
+            }
+            for (const speakerName of allSpeakers) {
+                if (!speakerName || isCompositeSpeakerLabel(speakerName)) continue;
+                const ensured = ensureCharacterEntry(speakerName);
+                if (ensured.created) createdCharacters = true;
+            }
+
             // Determine message range
             const startIdx = targetMode === 'last' ? Math.max(0, chat.length - 1) : 0;
 
@@ -2505,6 +2548,15 @@
                 const hasExistingColors = collectFontColorsFromText(text).size > 0;
                 if (!hasExistingColors) {
                     syncAllEffectiveColors();
+                    // Pre-register all unique non-user speaker names for attribution
+                    for (const msg of chat) {
+                        if (msg && !msg.is_user && msg.name) {
+                            const speakerName = msg.name.trim();
+                            if (speakerName && !isCompositeSpeakerLabel(speakerName)) {
+                                ensureCharacterEntry(speakerName);
+                            }
+                        }
+                    }
                     const result = colorizeMessageText(text, lastMsg.name, { autoAddMessageSpeaker: true });
                     if (result.createdCharacters) {
                         saveHistory();
