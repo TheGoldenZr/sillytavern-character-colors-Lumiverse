@@ -868,6 +868,103 @@
         return sanitized.length ? sanitized : null;
     }
 
+    async function colorizeMessageWithLLM(rawText, messageSpeakerName = '') {
+        if (typeof generateQuietPrompt !== 'function') return null;
+
+        // Build character-color list from known entries
+        const charList = [];
+        const trimmedSpeaker = String(messageSpeakerName ?? '').trim();
+        let defaultSpeakerColor = null;
+        for (const entry of Object.values(characterColors)) {
+            const color = getEntryEffectiveColor(entry);
+            charList.push(`${entry.name}=${color}`);
+            if (entry.name.toLowerCase() === trimmedSpeaker.toLowerCase()) {
+                defaultSpeakerColor = color;
+            }
+        }
+        if (!charList.length) return null;
+
+        if (!defaultSpeakerColor && trimmedSpeaker) {
+            const ensured = ensureCharacterEntry(trimmedSpeaker);
+            if (ensured?.entry) {
+                defaultSpeakerColor = getEntryEffectiveColor(ensured.entry);
+                charList.push(`${ensured.entry.name}=${defaultSpeakerColor}`);
+            }
+        }
+
+        const thoughtSymbols = String(settings.thoughtSymbols || '').trim();
+        const narratorColor = settings.narratorColor ? applyThemeReadabilityAndBrightness(settings.narratorColor) : null;
+
+        const lines = [
+            'Add <font color=#RRGGBB> tags to dialogue in this roleplay message based on who is speaking.',
+            '',
+            `Characters: ${charList.join(', ')}`,
+        ];
+        if (thoughtSymbols) lines.push(`Also color inner thoughts wrapped in ${thoughtSymbols} symbols.`);
+        if (narratorColor) lines.push(`Narrator=${narratorColor} for narration text.`);
+        if (trimmedSpeaker && defaultSpeakerColor) lines.push(`Default speaker (message author): ${trimmedSpeaker}=${defaultSpeakerColor}`);
+        lines.push('');
+        lines.push('Rules:');
+        lines.push('- Wrap quoted dialogue (and its quote marks) in <font color=COLOR>...</font>');
+        lines.push('- Do not change any text content, only add <font> tags');
+        lines.push('- Return the modified text only, no commentary');
+        lines.push('');
+        lines.push(rawText);
+
+        const instruction = lines.join('\n');
+
+        let response = '';
+        try {
+            response = await generateQuietPrompt({
+                quietPrompt: instruction,
+                skipWIAN: true,
+                quietName: `DialogueColorize_${Date.now()}`,
+                quietToLoud: false,
+            });
+        } catch (e) {
+            console.warn('[Dialogue Colors] LLM colorize failed:', e);
+            return null;
+        }
+
+        if (!response || typeof response !== 'string') return null;
+        const cleaned = response.trim();
+        if (!cleaned || !/<font\b/i.test(cleaned)) return null;
+
+        // Extract used assignments from the font tags in the response
+        const usedAssignments = [];
+        const usedColors = new Set();
+        const fontColorRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?/gi;
+        let fcMatch;
+        while ((fcMatch = fontColorRegex.exec(cleaned)) !== null) {
+            const color = fcMatch[1].toLowerCase();
+            if (!usedColors.has(color)) {
+                usedColors.add(color);
+                // Find the character name for this color
+                for (const entry of Object.values(characterColors)) {
+                    if (getEntryEffectiveColor(entry).toLowerCase() === color) {
+                        usedAssignments.push({ name: entry.name, color: getEntryEffectiveColor(entry) });
+                        break;
+                    }
+                }
+                if (narratorColor && color === narratorColor.toLowerCase() && !usedAssignments.some(a => a.name === 'Narrator')) {
+                    usedAssignments.push({ name: 'Narrator', color: narratorColor });
+                }
+            }
+        }
+
+        // Append [COLORS:] block if not already present
+        let finalText = cleaned;
+        if (usedAssignments.length && !/\[COLORS?:([^\]]*)\]/i.test(finalText)) {
+            finalText += `\n[COLORS:${usedAssignments.map(({ name, color }) => `${name}=${color}`).join(',')}]`;
+        }
+
+        return {
+            updatedText: finalText,
+            changed: finalText !== rawText,
+            usedAssignments,
+        };
+    }
+
     async function generateCustomPaletteFromWords(inputName = '', inputNotes = '') {
         const inlineInputs = getInlinePaletteInputs();
         const name = String(inputName || inlineInputs.name || '').trim();
@@ -2087,96 +2184,6 @@
         return lookup;
     }
 
-    const SPEAKER_ATTRIBUTION_VERBS = [
-        'said', 'says', 'asked', 'asks', 'replied', 'replies', 'whispered', 'whispers', 'murmured', 'murmurs',
-        'shouted', 'shouts', 'answered', 'answers', 'added', 'adds', 'continued', 'continues', 'called', 'calls',
-        'growled', 'growls', 'snapped', 'snaps', 'yelled', 'yells', 'muttered', 'mutters', 'sighed', 'sighs',
-        'laughed', 'laughs', 'remarked', 'remarks', 'noted', 'notes',
-        'breathed', 'breathes', 'repeated', 'repeats', 'corrected', 'corrects',
-        'exclaimed', 'exclaims', 'declared', 'declares', 'hissed', 'hisses',
-        'groaned', 'groans', 'mused', 'muses', 'scoffed', 'scoffs',
-        'insisted', 'insists', 'demanded', 'demands', 'warned', 'warns',
-        'agreed', 'agrees', 'offered', 'offers', 'suggested', 'suggests',
-        'protested', 'protests', 'pleaded', 'pleads', 'urged', 'urges',
-        'admitted', 'admits', 'interrupted', 'interrupts', 'teased', 'teases',
-        'begged', 'begs', 'conceded', 'concedes', 'prompted', 'prompts'
-    ];
-    const SPEAKER_ATTRIBUTION_PATTERN = SPEAKER_ATTRIBUTION_VERBS.join('|');
-
-    function normalizeSpeakerContextLine(textSlice, takeLast = true) {
-        const withBreaks = String(textSlice ?? '').replace(/<br\s*\/?>/gi, '\n');
-        const lineParts = withBreaks.split(/\r?\n/).filter(l => l.trim().length > 0);
-        if (!lineParts.length) return '';
-        const selectedLine = takeLast ? lineParts[lineParts.length - 1] : lineParts[0];
-        return String(selectedLine ?? '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/[*_`~]/g, '')
-            .replace(/&nbsp;/gi, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .toLowerCase();
-    }
-
-    function isCompositeSpeakerContextMatch(line, matchStart, matchEnd, excludeComma = false) {
-        const before = String(line ?? '').slice(0, matchStart);
-        const after = String(line ?? '').slice(matchEnd).replace(/^\s*\([^\n)]{0,40}\)/, '');
-        const sepBefore = excludeComma ? /(?:&|\/|\+|\band\b)\s*$/i : /(?:&|\/|\+|,|\band\b)\s*$/i;
-        const sepAfter = excludeComma ? /^\s*(?:&|\/|\+|\band\b)\s*/i : /^\s*(?:&|\/|\+|,|\band\b)\s*/i;
-        if (sepBefore.test(before)) return true;
-        return sepAfter.test(after);
-    }
-
-    function matchesSpeakerBeforeLine(line, speakerKey) {
-        if (!line || !speakerKey) return false;
-        const escapedKey = escapeRegExp(speakerKey);
-        const patterns = [
-            new RegExp(`${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s*(?::|[-—–])\\s*$`, 'i'),
-            new RegExp(`${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,30}$`, 'i')
-        ];
-        for (const pattern of patterns) {
-            const match = pattern.exec(line);
-            if (!match) continue;
-            const matchStart = match.index;
-            const matchEnd = matchStart + match[0].length;
-            if (!isCompositeSpeakerContextMatch(line, matchStart, matchEnd)) return true;
-        }
-        return false;
-    }
-
-    function matchesSpeakerAfterLine(line, speakerKey) {
-        if (!line || !speakerKey) return false;
-        const escapedKey = escapeRegExp(speakerKey);
-        const nameVerbPattern = new RegExp(`^[-—–,:;\\s]*${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b`, 'i');
-        const verbNamePattern = new RegExp(`^[-—–,:;\\s]*(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,20}${escapedKey}(?:\\s|$|[.!?,])`, 'i');
-        const lineWithTerminator = `${line} `;
-
-        // Pattern 1: name-verb — verb directly follows name, composite check unnecessary
-        const match1 = nameVerbPattern.exec(lineWithTerminator);
-        if (match1) return true;
-
-        // Pattern 2: verb-name — need composite check but exclude commas
-        const match2 = verbNamePattern.exec(lineWithTerminator);
-        if (match2) {
-            const matchStart = match2.index;
-            const matchEnd = matchStart + match2[0].length;
-            if (!isCompositeSpeakerContextMatch(lineWithTerminator, matchStart, matchEnd, true)) return true;
-        }
-        return false;
-    }
-
-    function findSpeakerAssignmentNearSegment(text, segmentStart, segmentEnd, lookup, sortedLookupKeys) {
-        const beforeLine = normalizeSpeakerContextLine(text.slice(Math.max(0, segmentStart - 180), segmentStart), true);
-        const afterLine = normalizeSpeakerContextLine(text.slice(segmentEnd, Math.min(text.length, segmentEnd + 140)), false);
-        for (const speakerKey of sortedLookupKeys) {
-            const assignment = lookup.get(speakerKey);
-            if (!assignment) continue;
-            if (matchesSpeakerBeforeLine(beforeLine, speakerKey) || matchesSpeakerAfterLine(afterLine, speakerKey)) {
-                return assignment;
-            }
-        }
-        return null;
-    }
-
     function findClosestMentionedSpeakerInContext(text, segmentStart, segmentEnd, lookup, sortedLookupKeys) {
         const beforeText = text.slice(Math.max(0, segmentStart - 300), segmentStart);
         const afterText = text.slice(segmentEnd, Math.min(text.length, segmentEnd + 140));
@@ -2260,19 +2267,15 @@
         const updatedText = rawText.replace(dialogueRegex, (match, ...args) => {
             hadDialogueMatches = true;
             const offset = args[args.length - 2];
-            const explicitSpeaker = findSpeakerAssignmentNearSegment(rawText, offset, offset + match.length, lookup, sortedLookupKeys);
-            const beforeLine = normalizeSpeakerContextLine(rawText.slice(Math.max(0, offset - 180), offset), true);
-            const hasMeaningfulPrefix = /[a-z0-9]/i.test(beforeLine);
+            const beforeSlice = rawText.slice(Math.max(0, offset - 180), offset).replace(/<[^>]+>/g, ' ').replace(/[*_`~]/g, '');
+            const hasMeaningfulPrefix = /[a-z0-9]/i.test(beforeSlice);
 
-            let assignment = explicitSpeaker;
             // Tier 2: soft context - closest mentioned character name near quote
-            if (!assignment) {
-                assignment = findClosestMentionedSpeakerInContext(rawText, offset, offset + match.length, lookup, sortedLookupKeys);
-            }
+            let assignment = findClosestMentionedSpeakerInContext(rawText, offset, offset + match.length, lookup, sortedLookupKeys);
             // Tier 3: no name in prefix → carry forward previous speaker
             if (!assignment && lastResolvedSpeakerKey) {
                 const prefixMentionsSpeaker = hasMeaningfulPrefix && sortedLookupKeys.some(key =>
-                    new RegExp(`\\b${escapeRegExp(key)}\\b`, 'i').test(beforeLine)
+                    new RegExp(`\\b${escapeRegExp(key)}\\b`, 'i').test(beforeSlice)
                 );
                 if (!prefixMentionsSpeaker) {
                     assignment = lookup.get(lastResolvedSpeakerKey) || null;
@@ -2478,18 +2481,33 @@
             let colorizedCount = 0;
             let skippedNoColor = 0;
             let createdCharacters = false;
+            const eligibleIndices = [];
             for (let i = startIdx; i < chat.length; i++) {
                 const msg = chat[i];
                 if (!msg || msg.is_user) continue;
                 const rawText = msg.mes || '';
                 if (!rawText) continue;
-
-                // Skip messages that already have <font color> tags
                 const existingFontColors = collectFontColorsFromText(rawText);
                 if (existingFontColors.size > 0) continue;
+                eligibleIndices.push(i);
+            }
+            for (let idx = 0; idx < eligibleIndices.length; idx++) {
+                const i = eligibleIndices[idx];
+                const msg = chat[i];
+                const rawText = msg.mes || '';
+                toast.info(`Colorizing message ${idx + 1}/${eligibleIndices.length}...`, { timeOut: 3000 });
 
-                const result = colorizeMessageText(rawText, msg.name, { autoAddMessageSpeaker: true });
-                if (result.createdCharacters) createdCharacters = true;
+                // Try LLM path first, fall back to regex
+                let result = null;
+                try {
+                    result = await colorizeMessageWithLLM(rawText, msg.name);
+                } catch (e) {
+                    console.warn('[Dialogue Colors] LLM colorize failed for message, falling back to regex:', e);
+                }
+                if (!result || !result.changed) {
+                    result = colorizeMessageText(rawText, msg.name, { autoAddMessageSpeaker: true });
+                    if (result.createdCharacters) createdCharacters = true;
+                }
                 if (!result.changed) {
                     if (result.hadDialogueMatches && !result.hadResolvableSpeaker) skippedNoColor++;
                     continue;
@@ -2544,7 +2562,7 @@
 
     function onNewMessage() {
         if (!settings.enabled || !settings.autoScanNewMessages) return;
-        setTimeout(() => {
+        setTimeout(async () => {
             const ctx = getContext();
             const chat = ctx?.chat || [];
             if (!chat.length) return;
@@ -2581,10 +2599,19 @@
                             }
                         }
                     }
-                    const result = colorizeMessageText(text, lastMsg.name, { autoAddMessageSpeaker: true });
-                    if (result.createdCharacters) {
-                        saveHistory();
-                        saveData(); updateCharList(); injectPrompt();
+                    // Try LLM path first, fall back to regex
+                    let result = null;
+                    try {
+                        result = await colorizeMessageWithLLM(text, lastMsg.name);
+                    } catch (e) {
+                        console.warn('[Dialogue Colors] LLM auto-colorize failed, falling back to regex:', e);
+                    }
+                    if (!result || !result.changed) {
+                        result = colorizeMessageText(text, lastMsg.name, { autoAddMessageSpeaker: true });
+                        if (result.createdCharacters) {
+                            saveHistory();
+                            saveData(); updateCharList(); injectPrompt();
+                        }
                     }
                     if (result.changed) {
                         lastMsg.mes = result.updatedText;
