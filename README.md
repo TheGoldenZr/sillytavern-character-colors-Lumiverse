@@ -73,6 +73,10 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
+## What's New in 3.4
+
+- **Connection Manager profiles** — LLM Profile dropdown now uses `ConnectionManagerRequestService` to list all connection profiles and send requests directly to a selected profile without switching the global active profile. Requires SillyTavern 1.15.0+; falls back to the main chat AI on older versions.
+
 ## What's New in 3.2
 
 - **Speaker-aware colorize fallback** — `Colorize` and the automatic fallback now resolve per-quote speakers from nearby labels/attributions and preserve established character colors instead of painting every quote with one speaker color.
@@ -144,6 +148,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **Disable narration** | Exclude narrator from the color prompt instructions (default: on) |
 | **Share colors globally** | Use one shared color table across all chats instead of per-chat storage |
 | **Enhance palettes with LLM** | Use LLM to refine generated custom palettes; falls back to local generator on failure |
+| **LLM Profile** | Connection profile to use for LLM colorization and palette generation — routes requests directly without switching the active profile (requires ST 1.15.0+) |
 | **Disable toast notifications** | Suppress all pop-up toast notifications from this extension (errors always show) |
 | **Narrator** | Set the narrator color used in prompt instructions |
 | **Clear** (Narrator) | Clear custom narrator color and return to default |
