@@ -73,10 +73,11 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
-## What's New in 3.1.14
+## What's New in 3.2
 
 - **Speaker-aware colorize fallback** — `Colorize` and the automatic fallback now resolve per-quote speakers from nearby labels/attributions and preserve established character colors instead of painting every quote with one speaker color.
 - **Better recovery for non-compliant generations** — messages with no `<font color>` tags and no `[COLORS:]` block can still be colorized when speakers are inferable, while newly seen main speakers are added automatically when needed.
+- **Composite speaker cleanup** — reducible labels like `Kaveh & Alhaitham` no longer become their own fallback color when those characters already exist, and stale combined entries are auto-removed from saved data.
 
 ## What's New in 3.1.8
 

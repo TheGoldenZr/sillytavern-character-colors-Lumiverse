@@ -105,7 +105,7 @@
             if (existing.baseColor === '#888888' && normalizedEntry.baseColor !== '#888888') existing.baseColor = normalizedEntry.baseColor;
             if (existing.color === '#888888' && normalizedEntry.color !== '#888888') existing.color = normalizedEntry.color;
         }
-        return normalized;
+        return pruneReducibleCompositeEntries(normalized);
     }
 
     // Optimized color distance calculation
@@ -1772,6 +1772,102 @@
         return { name, nicknames };
     }
 
+    function splitCompositeSpeakerName(rawName) {
+        const trimmedName = String(rawName ?? '').trim();
+        if (!trimmedName) return [];
+        const parts = trimmedName
+            .split(/\s*(?:&|\/|\+|,|\band\b)\s*/i)
+            .map(part => String(part ?? '').trim())
+            .filter(Boolean);
+        if (parts.length < 2) return [];
+        const seen = new Set();
+        return parts.filter(part => {
+            const key = part.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    function isCompositeSpeakerLabel(rawName) {
+        return splitCompositeSpeakerName(rawName).length >= 2;
+    }
+
+    function resolveLookupAssignmentByName(lookup, rawName) {
+        if (!(lookup instanceof Map)) return null;
+        const trimmedName = String(rawName ?? '').trim();
+        if (!trimmedName) return null;
+        const { name, nicknames } = parseNameWithNicknames(trimmedName);
+        const candidates = [];
+        const pushCandidate = value => {
+            const normalized = String(value ?? '').trim().toLowerCase();
+            if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+        };
+        pushCandidate(trimmedName);
+        pushCandidate(name);
+        nicknames.forEach(pushCandidate);
+        for (const candidate of candidates) {
+            const assignment = lookup.get(candidate);
+            if (assignment) return assignment;
+        }
+        return null;
+    }
+
+    function resolveCompositeSpeakerParts(rawName, lookup) {
+        const parts = splitCompositeSpeakerName(rawName);
+        if (parts.length < 2 || !(lookup instanceof Map)) return [];
+        const resolved = [];
+        const seenKeys = new Set();
+        for (const part of parts) {
+            const assignment = resolveLookupAssignmentByName(lookup, part);
+            if (!assignment || isCompositeSpeakerLabel(assignment.name)) return [];
+            if (seenKeys.has(assignment.key)) continue;
+            seenKeys.add(assignment.key);
+            resolved.push(assignment);
+        }
+        return resolved;
+    }
+
+    function isReducibleCompositeSpeakerName(rawName, lookup) {
+        return resolveCompositeSpeakerParts(rawName, lookup).length >= 2;
+    }
+
+    function resolveSingleSpeakerAssignment(rawName, lookup) {
+        const trimmedName = String(rawName ?? '').trim();
+        if (!trimmedName || !(lookup instanceof Map)) return null;
+        const resolvedCompositeParts = resolveCompositeSpeakerParts(trimmedName, lookup);
+        if (resolvedCompositeParts.length === 1) return resolvedCompositeParts[0];
+        if (resolvedCompositeParts.length >= 2 || isCompositeSpeakerLabel(trimmedName)) return null;
+        const directAssignment = resolveLookupAssignmentByName(lookup, trimmedName);
+        if (!directAssignment || isCompositeSpeakerLabel(directAssignment.name)) return null;
+        return directAssignment;
+    }
+
+    function buildSingleSpeakerEntryLookup(rawColors) {
+        const lookup = new Map();
+        for (const entry of Object.values(rawColors || {})) {
+            if (!entry || isCompositeSpeakerLabel(entry.name)) continue;
+            registerLookupAssignment(lookup, entry.name, normalizeHexColor(entry.color, getBaseColor(entry)), entry.aliases);
+        }
+        return lookup;
+    }
+
+    function pruneReducibleCompositeEntries(rawColors) {
+        if (!rawColors || typeof rawColors !== 'object') return {};
+        let removed = false;
+        do {
+            removed = false;
+            const lookup = buildSingleSpeakerEntryLookup(rawColors);
+            for (const [key, entry] of Object.entries(rawColors)) {
+                if (!entry || !isCompositeSpeakerLabel(entry.name)) continue;
+                if (!isReducibleCompositeSpeakerName(entry.name, lookup)) continue;
+                delete rawColors[key];
+                removed = true;
+            }
+        } while (removed);
+        return rawColors;
+    }
+
     // Phase 1A: Shared color-pair processing — deduplicates parseColorBlock, scanAllMessages, onNewMessage
     // Also fixes auto-lock inconsistency (2A) and adds group field (6B)
     function processColorPairs(pairsString) {
@@ -1975,7 +2071,17 @@
         if (settings.narratorColor) {
             registerLookupAssignment(lookup, 'Narrator', applyThemeReadabilityAndBrightness(settings.narratorColor));
         }
+        const pendingCompositeAssignments = [];
         for (const assignment of Array.isArray(extraAssignments) ? extraAssignments : []) {
+            if (!assignment) continue;
+            if (isCompositeSpeakerLabel(assignment.name)) {
+                pendingCompositeAssignments.push(assignment);
+                continue;
+            }
+            registerLookupAssignment(lookup, assignment.name, applyThemeReadabilityAndBrightness(assignment.color), assignment.aliases, true);
+        }
+        for (const assignment of pendingCompositeAssignments) {
+            if (isReducibleCompositeSpeakerName(assignment.name, lookup)) continue;
             registerLookupAssignment(lookup, assignment.name, applyThemeReadabilityAndBrightness(assignment.color), assignment.aliases, true);
         }
         return lookup;
@@ -2002,18 +2108,46 @@
             .toLowerCase();
     }
 
+    function isCompositeSpeakerContextMatch(line, matchStart, matchEnd) {
+        const before = String(line ?? '').slice(0, matchStart);
+        const after = String(line ?? '').slice(matchEnd).replace(/^\s*\([^\n)]{0,40}\)/, '');
+        if (/(?:&|\/|\+|,|\band\b)\s*$/i.test(before)) return true;
+        return /^\s*(?:&|\/|\+|,|\band\b)\s*/i.test(after);
+    }
+
     function matchesSpeakerBeforeLine(line, speakerKey) {
         if (!line || !speakerKey) return false;
         const escapedKey = escapeRegExp(speakerKey);
-        if (new RegExp(`${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s*(?::|[-—–])\\s*$`, 'i').test(line)) return true;
-        return new RegExp(`${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,30}$`, 'i').test(line);
+        const patterns = [
+            new RegExp(`${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s*(?::|[-—–])\\s*$`, 'i'),
+            new RegExp(`${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,30}$`, 'i')
+        ];
+        for (const pattern of patterns) {
+            const match = pattern.exec(line);
+            if (!match) continue;
+            const matchStart = match.index;
+            const matchEnd = matchStart + match[0].length;
+            if (!isCompositeSpeakerContextMatch(line, matchStart, matchEnd)) return true;
+        }
+        return false;
     }
 
     function matchesSpeakerAfterLine(line, speakerKey) {
         if (!line || !speakerKey) return false;
         const escapedKey = escapeRegExp(speakerKey);
-        if (new RegExp(`^[-—–,:;\\s]*${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b`, 'i').test(line)) return true;
-        return new RegExp(`^[-—–,:;\\s]*(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,20}${escapedKey}(?:\\s|$|[.!?,])`, 'i').test(`${line} `);
+        const patterns = [
+            new RegExp(`^[-—–,:;\\s]*${escapedKey}(?:\\s*\\([^\\n)]{0,40}\\))?\\s+(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b`, 'i'),
+            new RegExp(`^[-—–,:;\\s]*(?:${SPEAKER_ATTRIBUTION_PATTERN})\\b[^\\n]{0,20}${escapedKey}(?:\\s|$|[.!?,])`, 'i')
+        ];
+        const lineWithTerminator = `${line} `;
+        for (const pattern of patterns) {
+            const match = pattern.exec(lineWithTerminator);
+            if (!match) continue;
+            const matchStart = match.index;
+            const matchEnd = matchStart + match[0].length;
+            if (!isCompositeSpeakerContextMatch(lineWithTerminator, matchStart, matchEnd)) return true;
+        }
+        return false;
     }
 
     function findSpeakerAssignmentNearSegment(text, segmentStart, segmentEnd, lookup, sortedLookupKeys) {
@@ -2047,17 +2181,19 @@
 
         const localAssignments = parseNamedColorAssignmentsFromText(rawText);
         const lookup = buildNameColorLookup(localAssignments);
-        const sortedLookupKeys = Array.from(lookup.keys()).sort((left, right) => right.length - left.length);
+        const sortedLookupKeys = Array.from(lookup.keys())
+            .filter(key => !isCompositeSpeakerLabel(lookup.get(key)?.name || key))
+            .sort((left, right) => right.length - left.length);
         const trimmedSpeakerName = String(messageSpeakerName ?? '').trim();
         let createdCharacters = false;
-        let defaultSpeaker = trimmedSpeakerName ? (lookup.get(trimmedSpeakerName.toLowerCase()) || null) : null;
+        let defaultSpeaker = resolveSingleSpeakerAssignment(trimmedSpeakerName, lookup);
 
         if (!defaultSpeaker && localAssignments.length === 1) {
-            defaultSpeaker = lookup.get(localAssignments[0].name.toLowerCase()) || null;
+            defaultSpeaker = resolveSingleSpeakerAssignment(localAssignments[0].name, lookup);
         }
 
         const ensureDefaultSpeaker = () => {
-            if (defaultSpeaker || !options.autoAddMessageSpeaker || !trimmedSpeakerName) return defaultSpeaker;
+            if (defaultSpeaker || !options.autoAddMessageSpeaker || !trimmedSpeakerName || isCompositeSpeakerLabel(trimmedSpeakerName)) return defaultSpeaker;
             const ensured = ensureCharacterEntry(trimmedSpeakerName);
             if (!ensured?.entry) return null;
             if (ensured.created) createdCharacters = true;
