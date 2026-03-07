@@ -2236,6 +2236,10 @@
         mesElement.appendChild(indicator);
     }
 
+    function clearAutoColorizeIndicators() {
+        document.querySelectorAll('.dc-auto-colorize-indicator').forEach(indicator => indicator.remove());
+    }
+
     function hideAutoColorizeIndicator(mesElement) {
         if (!mesElement) return;
         const indicator = mesElement.querySelector('.dc-auto-colorize-indicator');
@@ -2809,6 +2813,7 @@
                 if (!hasExistingColors) {
                     isAutoColorizing = true;
                     const lastMesEl = document.querySelector('.mes:last-child');
+                    clearAutoColorizeIndicators();
                     showAutoColorizeIndicator(lastMesEl);
                     try {
                         syncAllEffectiveColors();
@@ -2846,16 +2851,22 @@
 
                             // Force immediate reload
                             if (typeof ctx2?.reloadCurrentChat === 'function') {
+                                toast.info('Auto-colorized latest message. Reloading chat...');
                                 await ctx2.reloadCurrentChat();
                             } else if (typeof eventSource?.emit === 'function' && event_types?.MESSAGE_UPDATED) {
+                                toast.info('Auto-colorized latest message. Refreshing chat...');
                                 eventSource.emit(event_types.MESSAGE_UPDATED);
                             } else if (typeof eventSource?.emit === 'function' && event_types?.CHAT_CHANGED) {
+                                toast.info('Auto-colorized latest message. Refreshing chat...');
                                 eventSource.emit(event_types.CHAT_CHANGED);
+                            } else {
+                                toast.info('Auto-colorized latest message.');
                             }
                         }
                     } finally {
                         isAutoColorizing = false;
-                        hideAutoColorizeIndicator(document.querySelector('.mes:last-child'));
+                        hideAutoColorizeIndicator(lastMesEl);
+                        clearAutoColorizeIndicators();
                     }
                 }
             }
@@ -3524,6 +3535,7 @@
     }
 
     function handleChatChanged() {
+        clearAutoColorizeIndicators();
         clearDomCache();
         const currentCharKey = getCharKey();
         if (currentCharKey !== lastCharKey) {
