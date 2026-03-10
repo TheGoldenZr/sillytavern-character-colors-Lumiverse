@@ -9,6 +9,7 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 ### Core
 - **Auto-coloring** - Instructs the LLM to wrap dialogue in `<font color>` tags
 - **LLM color blocks** - LLM outputs `[COLORS:Name=#RRGGBB,...]` at end of messages for reliable character detection (auto-removed)
+- **Text-safe colorize fallback** - Rejects LLM rewrites that alter dialogue text or introduce escaped/extra quotes, then falls back to deterministic quote matching
 - **Auto-detect nicknames/usernames** - LLM can include nicknames in parentheses: `[COLORS:Alice(xX_Alice_Xx)=#FF0000]` - these are automatically added as character aliases
 - **Per-chat or global colors** - Store colors per character or share across all chats
 - **Auto-lock detected characters** - Automatically lock newly detected characters (default: on)
@@ -73,6 +74,11 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
+## What's New in 3.5.1
+
+- **Safer quote handling** — the injected prompt now describes dialogue delimiters without JSON-style escaped quote syntax, which helps avoid models echoing back escaped-string formatting.
+- **Text-preserving LLM colorize fallback** — LLM-assisted colorization now rejects outputs that alter message text or introduce escaped/doubled quotes like `""\"...\""` and falls back to deterministic quote matching instead.
+
 ## What's New in 3.4
 
 - **Connection Manager profiles** — LLM Profile dropdown now uses `ConnectionManagerRequestService` to list all connection profiles and send requests directly to a selected profile without switching the global active profile. Requires SillyTavern 1.15.0+; falls back to the main chat AI on older versions.
@@ -116,7 +122,8 @@ Effects are visible in chat but stripped from the prompt context.
 2. LLM outputs `[COLORS:Name=#RRGGBB,...]` at the end of each response
 3. Extension parses the block, extracts characters/colors, and removes it from display
 4. Regex scripts strip font tags and color blocks from the prompt context
-5. Colors persist per chat or globally (configurable)
+5. LLM colorize fallback validates that message text is unchanged before accepting it; malformed rewrites fall back to deterministic quote matching
+6. Colors persist per chat or globally (configurable)
 
 ## UI Reference
 

@@ -914,6 +914,108 @@
         }
     }
 
+    function buildLLMColorizeRules(extraRule = '') {
+        const rules = [
+            'Rules:',
+            '- Wrap quoted dialogue (and its quote marks) in <font color=COLOR>...</font>',
+            '- Preserve every original character exactly; only insert <font> tags',
+            '- Do not add or remove backslashes, quote marks, or any other punctuation',
+            '- Do not rewrite dialogue as an escaped string or surround it with extra outer quotes',
+        ];
+        if (extraRule) rules.push(extraRule);
+        return rules;
+    }
+
+    function unwrapCodeFence(text) {
+        const cleaned = String(text ?? '').trim();
+        const match = cleaned.match(/^```(?:html|xml|markdown|md|text|txt)?\s*([\s\S]*?)\s*```$/i);
+        return match ? match[1].trim() : cleaned;
+    }
+
+    function stripFontTags(text) {
+        return String(text ?? '')
+            .replace(/<font\b[^>]*>/gi, '')
+            .replace(/<\/font>/gi, '');
+    }
+
+    function stripColorBlocks(text) {
+        return String(text ?? '').replace(/\n?\[COLORS?:[^\]]*\]/gi, '');
+    }
+
+    function normalizeColorizedTextForComparison(text) {
+        return stripColorBlocks(stripFontTags(String(text ?? '').replace(/\r\n?/g, '\n'))).trim();
+    }
+
+    function detectLLMQuoteArtifacts(originalText, candidateText) {
+        const issues = [];
+        const original = String(originalText ?? '');
+        const candidate = String(candidateText ?? '');
+        if (!original.includes('\\"') && /\\"/.test(candidate)) issues.push('escaped quotes');
+
+        const originalTrimmed = original.trim();
+        const candidateTrimmed = candidate.trim();
+        if (!/^"{2,}[\s\S]*"{2,}$/.test(originalTrimmed) && /^"{2,}[\s\S]*"{2,}$/.test(candidateTrimmed)) {
+            issues.push('extra wrapper quotes');
+        }
+
+        return issues;
+    }
+
+    function extractUsedAssignmentsFromColorizedText(text, narratorColor = null) {
+        const usedAssignments = [];
+        const usedColors = new Set();
+        const fontColorRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?/gi;
+        let match;
+        while ((match = fontColorRegex.exec(text)) !== null) {
+            const color = match[1].toLowerCase();
+            if (usedColors.has(color)) continue;
+
+            usedColors.add(color);
+            for (const entry of Object.values(characterColors)) {
+                if (getEntryEffectiveColor(entry).toLowerCase() === color) {
+                    usedAssignments.push({ name: entry.name, color: getEntryEffectiveColor(entry) });
+                    break;
+                }
+            }
+            if (narratorColor && color === narratorColor.toLowerCase() && !usedAssignments.some(a => a.name === 'Narrator')) {
+                usedAssignments.push({ name: 'Narrator', color: narratorColor });
+            }
+        }
+
+        return usedAssignments;
+    }
+
+    function finalizeLLMColorizedText(rawText, responseText, narratorColor = null) {
+        if (!responseText || typeof responseText !== 'string') return null;
+
+        const cleaned = unwrapCodeFence(responseText);
+        if (!cleaned || !/<font\b/i.test(cleaned)) return null;
+
+        const originalBody = normalizeColorizedTextForComparison(rawText);
+        const candidateBody = normalizeColorizedTextForComparison(cleaned);
+        const quoteIssues = detectLLMQuoteArtifacts(originalBody, candidateBody);
+        if (quoteIssues.length || candidateBody !== originalBody) {
+            console.warn('[Dialogue Colors] Rejected LLM colorize output due to text drift:', {
+                issues: quoteIssues,
+                originalSample: originalBody.slice(0, 200),
+                candidateSample: candidateBody.slice(0, 200),
+            });
+            return null;
+        }
+
+        const usedAssignments = extractUsedAssignmentsFromColorizedText(cleaned, narratorColor);
+        let finalText = cleaned;
+        if (usedAssignments.length && !/\[COLORS?:([^\]]*)\]/i.test(finalText)) {
+            finalText += `\n[COLORS:${usedAssignments.map(({ name, color }) => `${name}=${color}`).join(',')}]`;
+        }
+
+        return {
+            updatedText: finalText,
+            changed: finalText !== rawText,
+            usedAssignments,
+        };
+    }
+
     async function colorizeMessageWithLLM(rawText, messageSpeakerName = '') {
         if (typeof generateQuietPrompt !== 'function') return null;
 
@@ -950,10 +1052,7 @@
         if (narratorColor) lines.push(`Narrator=${narratorColor} for narration text.`);
         if (trimmedSpeaker && defaultSpeakerColor) lines.push(`Default speaker (message author): ${trimmedSpeaker}=${defaultSpeakerColor}`);
         lines.push('');
-        lines.push('Rules:');
-        lines.push('- Wrap quoted dialogue (and its quote marks) in <font color=COLOR>...</font>');
-        lines.push('- Do not change any text content, only add <font> tags');
-        lines.push('- Return the modified text only, no commentary');
+        lines.push(...buildLLMColorizeRules('- Return the modified text only, no commentary'));
         lines.push('');
         lines.push(rawText);
 
@@ -969,43 +1068,7 @@
             return null;
         }
 
-        if (!response || typeof response !== 'string') return null;
-        const cleaned = response.trim();
-        if (!cleaned || !/<font\b/i.test(cleaned)) return null;
-
-        // Extract used assignments from the font tags in the response
-        const usedAssignments = [];
-        const usedColors = new Set();
-        const fontColorRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?/gi;
-        let fcMatch;
-        while ((fcMatch = fontColorRegex.exec(cleaned)) !== null) {
-            const color = fcMatch[1].toLowerCase();
-            if (!usedColors.has(color)) {
-                usedColors.add(color);
-                // Find the character name for this color
-                for (const entry of Object.values(characterColors)) {
-                    if (getEntryEffectiveColor(entry).toLowerCase() === color) {
-                        usedAssignments.push({ name: entry.name, color: getEntryEffectiveColor(entry) });
-                        break;
-                    }
-                }
-                if (narratorColor && color === narratorColor.toLowerCase() && !usedAssignments.some(a => a.name === 'Narrator')) {
-                    usedAssignments.push({ name: 'Narrator', color: narratorColor });
-                }
-            }
-        }
-
-        // Append [COLORS:] block if not already present
-        let finalText = cleaned;
-        if (usedAssignments.length && !/\[COLORS?:([^\]]*)\]/i.test(finalText)) {
-            finalText += `\n[COLORS:${usedAssignments.map(({ name, color }) => `${name}=${color}`).join(',')}]`;
-        }
-
-        return {
-            updatedText: finalText,
-            changed: finalText !== rawText,
-            usedAssignments,
-        };
+        return finalizeLLMColorizedText(rawText, response, narratorColor);
     }
 
     async function colorizeMultipleMessagesWithLLM(messageBatch) {
@@ -1033,10 +1096,7 @@
         if (thoughtSymbols) lines.push(`Also color inner thoughts wrapped in ${thoughtSymbols} symbols.`);
         if (narratorColor) lines.push(`Narrator=${narratorColor} for narration text.`);
         lines.push('');
-        lines.push('Rules:');
-        lines.push('- Wrap quoted dialogue (and its quote marks) in <font color=COLOR>...</font>');
-        lines.push('- Do not change any text content, only add <font> tags');
-        lines.push('- Return all messages in order with [MSG:N] markers preserved');
+        lines.push(...buildLLMColorizeRules('- Return all messages in order with [MSG:N] markers preserved'));
         lines.push('');
 
         // Add all messages with markers
@@ -1069,39 +1129,13 @@
             const colorizedText = msgBlocks[i + 1]?.trim();
 
             if (isNaN(msgIdx) || msgIdx >= messageBatch.length) continue;
-            if (!colorizedText || !/<font\b/i.test(colorizedText)) continue;
-
-            // Extract used colors and append [COLORS:] block
-            const usedAssignments = [];
-            const usedColors = new Set();
-            const fontColorRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?/gi;
-            let match;
-            while ((match = fontColorRegex.exec(colorizedText)) !== null) {
-                const color = match[1].toLowerCase();
-                if (!usedColors.has(color)) {
-                    usedColors.add(color);
-                    for (const entry of Object.values(characterColors)) {
-                        if (getEntryEffectiveColor(entry).toLowerCase() === color) {
-                            usedAssignments.push({ name: entry.name, color: getEntryEffectiveColor(entry) });
-                            break;
-                        }
-                    }
-                    if (narratorColor && color === narratorColor.toLowerCase() &&
-                        !usedAssignments.some(a => a.name === 'Narrator')) {
-                        usedAssignments.push({ name: 'Narrator', color: narratorColor });
-                    }
-                }
-            }
-
-            let finalText = colorizedText;
-            if (usedAssignments.length && !/\[COLORS?:([^\]]*)\]/i.test(finalText)) {
-                finalText += `\n[COLORS:${usedAssignments.map(({ name, color }) => `${name}=${color}`).join(',')}]`;
-            }
+            const finalized = finalizeLLMColorizedText(messageBatch[msgIdx].rawText, colorizedText, narratorColor);
+            if (!finalized || !finalized.changed) continue;
 
             results.push({
                 msgIndex: messageBatch[msgIdx].msgIndex,
-                updatedText: finalText,
-                changed: true,
+                updatedText: finalized.updatedText,
+                changed: finalized.changed,
             });
         }
 
@@ -1705,12 +1739,17 @@
         tritanopia: 'Use colorblind-safe colors (tritanopia type).',
     };
 
+    function describeDelimiterSymbol(symbol) {
+        if (symbol === '"') return 'double quote (")';
+        return `"${symbol}"`;
+    }
+
     function buildPromptInstruction() {
         if (!settings.enabled) return '';
         const { mode, minLightness, maxLightness } = getThemeLightnessBounds();
         const thoughtSymbols = [...new Set(String(settings.thoughtSymbols || '').split('').filter(s => s && s.trim()))];
         const delimiterSymbols = [...new Set(['"', ...thoughtSymbols])];
-        const delimiterSymbolList = delimiterSymbols.map(s => `"${s.replace(/"/g, '\\"')}"`).join(', ');
+        const delimiterSymbolList = delimiterSymbols.map(describeDelimiterSymbol).join(', ');
         const colorList = Object.entries(characterColors)
             .filter(([, v]) => v.locked && v.color)
             .map(([, v]) => `${v.name}=${getEntryEffectiveColor(v)}${v.style ? ` (${v.style})` : ''}`)
@@ -1721,7 +1760,8 @@
             `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags, and include surrounding dialogue/thought delimiter symbols inside the same colored span.`,
             mode === 'dark' ? 'Use readable colors for a dark background. HARD RULE: Never use dark colors in dark mode. Use medium-to-light colors only; avoid low-lightness shades.' : 'Use readable colors for a light background. HARD RULE: Never use bright colors in light mode. Use medium-to-dark colors only; avoid high-lightness shades.',
         ];
-        parts.push(`Delimiter rule: always color delimiter symbols too (do not leave them uncolored). Symbols: ${delimiterSymbolList}.`);
+        parts.push(`Delimiter rule: always color the actual delimiter symbols too (do not leave them uncolored). Delimiters: ${delimiterSymbolList}.`);
+        parts.push('Use normal dialogue punctuation. Do not format dialogue as an escaped string or wrap it in extra outer quote marks.');
         parts.push(`HARD RANGE: Keep color lightness between ${minLightness}% and ${maxLightness}% for ${mode} mode. This range is enforced.`);
         if (brightnessOffset > 0) parts.push(`Apply +${brightnessOffset}% lightness offset, then clamp to the hard range.`);
         if (brightnessOffset < 0) parts.push(`Apply -${Math.abs(brightnessOffset)}% lightness offset, then clamp to the hard range.`);
