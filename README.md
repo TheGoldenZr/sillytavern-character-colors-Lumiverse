@@ -19,7 +19,7 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 - **Color lock** 🔒 - Lock a character's color to prevent changes
 - **Quick swap** ⇄ - Click two characters to swap their colors
 - **Avatar color extraction** - Auto-suggest colors from character avatar's dominant color
-- **Brightness adjustment** - Global slider for lighter/darker colors
+- **Brightness adjustment** - Bias newly generated/regenerated colors lighter or darker without retroactively changing established assignments
 - **Theme flip** ☀/🌙 - Instantly flip all colors between dark↔light suited variants
 - **Undo/Redo** ↶↷ - Full history with Ctrl+Z/Y shortcuts
 - **Export/Import** - Save and load color schemes as JSON
@@ -74,6 +74,12 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
+## What's New in 3.5.2
+
+- **Stable established colors** — once a character has an assigned color, later replies keep that exact assignment instead of re-deriving it from the current brightness slider.
+- **Duplicate NPC color protection** — newly detected characters are now remapped locally if the model reuses or closely matches an existing character color.
+- **Cleaner delimiter prompt text** — prompt injection now lists literal quote/thought delimiters directly, which reduces awkward phrasing that could confuse the model.
+
 ## What's New in 3.5.1
 
 - **Safer quote handling** — the injected prompt now describes dialogue delimiters without JSON-style escaped quote syntax, which helps avoid models echoing back escaped-string formatting.
@@ -99,7 +105,6 @@ Effects are visible in chat but stripped from the prompt context.
 
 ## What's New in 3.1.6
 
-- **Brightness slider always auto-recolors** — removed the `Auto-brightness` toggle; moving the brightness slider now unconditionally refreshes chat colors for unlocked characters.
 - **Reliable undo toasts** — destructive actions (Clear, Delete, Reset, etc.) now capture a snapshot before mutating, so clicking the undo toast always restores correctly even if chat events reset the history stack.
 
 ## Installation
@@ -142,7 +147,7 @@ Effects are visible in chat but stripped from the prompt context.
 | **Palette name** | Name for the custom palette to create or save |
 | **Palette notes** | Optional notes that guide generated palette style |
 | **Overwrite existing** | Allow replacing an existing custom palette with the same name |
-| **Brightness** | Shift effective color lightness up/down — automatically recolors chat for unlocked characters |
+| **Brightness** | Bias newly generated or regenerated colors lighter/darker without changing established character assignments |
 
 ### Behavior Section
 | Control | Function |

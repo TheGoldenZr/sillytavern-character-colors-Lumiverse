@@ -117,7 +117,7 @@
     }
 
     const MODULE_NAME = 'dialogue-colors';
-    const COLOR_SCHEMA_VERSION = 2;
+    const COLOR_SCHEMA_VERSION = 3;
     const LEGACY_GLOBAL_SETTINGS_KEY = 'dc_global_settings';
     const GLOBAL_SETTINGS_V2_KEY = 'dc_global_settings_v2';
     let characterColors = {};
@@ -1040,7 +1040,8 @@
             }
         }
 
-        const thoughtSymbols = String(settings.thoughtSymbols || '').trim();
+        const thoughtSymbols = getThoughtDelimiterSymbols();
+        const thoughtSymbolList = thoughtSymbols.map(formatPromptLiteralSymbol).join(', ');
         const narratorColor = settings.narratorColor ? applyThemeReadabilityAndBrightness(settings.narratorColor) : null;
 
         const lines = [
@@ -1048,7 +1049,7 @@
             '',
             `Characters: ${charList.join(', ')}`,
         ];
-        if (thoughtSymbols) lines.push(`Also color inner thoughts wrapped in ${thoughtSymbols} symbols.`);
+        if (thoughtSymbolList) lines.push(`Also color inner thoughts when delimited by these literal symbols: ${thoughtSymbolList}.`);
         if (narratorColor) lines.push(`Narrator=${narratorColor} for narration text.`);
         if (trimmedSpeaker && defaultSpeakerColor) lines.push(`Default speaker (message author): ${trimmedSpeaker}=${defaultSpeakerColor}`);
         lines.push('');
@@ -1083,7 +1084,8 @@
         }
         if (!charList.length) return [];
 
-        const thoughtSymbols = String(settings.thoughtSymbols || '').trim();
+        const thoughtSymbols = getThoughtDelimiterSymbols();
+        const thoughtSymbolList = thoughtSymbols.map(formatPromptLiteralSymbol).join(', ');
         const narratorColor = settings.narratorColor ?
             applyThemeReadabilityAndBrightness(settings.narratorColor) : null;
 
@@ -1093,7 +1095,7 @@
             '',
             `Characters: ${charList.join(', ')}`,
         ];
-        if (thoughtSymbols) lines.push(`Also color inner thoughts wrapped in ${thoughtSymbols} symbols.`);
+        if (thoughtSymbolList) lines.push(`Also color inner thoughts when delimited by these literal symbols: ${thoughtSymbolList}.`);
         if (narratorColor) lines.push(`Narrator=${narratorColor} for narration text.`);
         lines.push('');
         lines.push(...buildLLMColorizeRules('- Return all messages in order with [MSG:N] markers preserved'));
@@ -1185,7 +1187,7 @@
             toast.warning('Enter a palette name first');
             return;
         }
-        const colors = [...new Set(Object.values(characterColors).map(c => normalizeHexColor(c.color, null)).filter(Boolean))];
+        const colors = [...new Set(Object.values(characterColors).map(c => normalizeHexColor(getEntryEffectiveColor(c), null)).filter(Boolean))];
         if (!colors.length) { toast.warning('No characters to save palette from'); return; }
         const customs = getCustomPalettes();
         if (customs[name] && !shouldOverwritePalette()) {
@@ -1353,8 +1355,7 @@
     }
 
     function getEntryEffectiveColor(entry) {
-        if (entry?.locked) return entry.color;
-        return applyThemeReadabilityAndBrightness(getBaseColor(entry));
+        return normalizeHexColor(entry?.color, applyThemeReadabilityAndBrightness(getBaseColor(entry)));
     }
 
     function setEntryFromBaseColor(entry, baseColor) {
@@ -1366,18 +1367,130 @@
 
     function setEntryFromEffectiveColor(entry, effectiveColor) {
         if (!entry) return '#888888';
-        const normalizedEffective = normalizeHexColor(effectiveColor, entry.color);
+        const normalizedEffective = normalizeHexColor(effectiveColor, getEntryEffectiveColor(entry));
         entry.baseColor = deriveBaseColorFromEffectiveColor(normalizedEffective);
-        entry.color = applyThemeReadabilityAndBrightness(getBaseColor(entry));
+        entry.color = normalizedEffective;
         return entry.color;
     }
 
     function syncAllEffectiveColors() {
         for (const entry of Object.values(characterColors)) {
             if (!entry) continue;
-            if (entry.locked) continue;
+            const currentColor = normalizeHexColor(entry.color, null);
+            if (currentColor) {
+                entry.color = currentColor;
+                if (!normalizeHexColor(entry.baseColor, null)) {
+                    entry.baseColor = deriveBaseColorFromEffectiveColor(currentColor);
+                }
+                continue;
+            }
             setEntryFromBaseColor(entry, getBaseColor(entry));
         }
+    }
+
+    function collectAssignedColors(excludeKeys = []) {
+        const excluded = new Set((Array.isArray(excludeKeys) ? excludeKeys : [excludeKeys])
+            .map(key => String(key ?? '').trim().toLowerCase())
+            .filter(Boolean));
+        const colors = [];
+        for (const [key, entry] of Object.entries(characterColors)) {
+            if (!entry || excluded.has(key)) continue;
+            const color = normalizeHexColor(getEntryEffectiveColor(entry), null);
+            if (color && !colors.includes(color)) colors.push(color);
+        }
+        return colors;
+    }
+
+    function isAssignedColorConflict(candidateColor, reservedColors = []) {
+        const normalizedCandidate = normalizeHexColor(candidateColor, null);
+        if (!normalizedCandidate) return true;
+        return reservedColors.some(existing => existing === normalizedCandidate || colorDistance(existing, normalizedCandidate));
+    }
+
+    function resolveUniqueAssignedColor(preferredColor, excludeKeys = []) {
+        const reservedColors = collectAssignedColors(excludeKeys);
+        const normalizedPreferred = normalizeHexColor(preferredColor, null);
+        if (normalizedPreferred && !isAssignedColorConflict(normalizedPreferred, reservedColors)) {
+            return { color: normalizedPreferred, remapped: false };
+        }
+
+        const candidates = [];
+        if (normalizedPreferred) {
+            const [h, s, l] = hexToHsl(normalizedPreferred);
+            const { minLightness, maxLightness } = getThemeLightnessBounds();
+            const lightVariants = [
+                l,
+                l + 18,
+                l - 18,
+                l + 30,
+                l - 30,
+                minLightness,
+                maxLightness,
+                Math.round((minLightness + maxLightness) / 2),
+            ];
+            const hueOffsets = [30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180];
+            for (const hueOffset of hueOffsets) {
+                for (const lightness of lightVariants) {
+                    candidates.push(hslToHex(
+                        (h + hueOffset + 360) % 360,
+                        Math.max(35, Math.min(100, s)),
+                        Math.max(minLightness, Math.min(maxLightness, Math.round(lightness)))
+                    ));
+                }
+            }
+        }
+
+        for (let i = 0; i < 24; i++) {
+            const seededCandidate = applyThemeReadabilityAndBrightness(getNextColor());
+            const [seedH, seedS, seedL] = hexToHsl(seededCandidate);
+            candidates.push(seededCandidate);
+            candidates.push(hslToHex((seedH + ((i + 1) * 17)) % 360, seedS, seedL));
+        }
+
+        for (const candidate of candidates) {
+            const normalizedCandidate = normalizeHexColor(candidate, null);
+            if (!normalizedCandidate) continue;
+            if (!isAssignedColorConflict(normalizedCandidate, reservedColors)) {
+                return { color: normalizedCandidate, remapped: true };
+            }
+        }
+
+        const fallback = normalizeHexColor(applyThemeReadabilityAndBrightness(getNextColor()), normalizedPreferred || '#888888');
+        return { color: fallback, remapped: fallback !== normalizedPreferred };
+    }
+
+    function buildCharacterEntry(name, options = {}) {
+        const trimmedName = String(name ?? '').trim();
+        if (!trimmedName) return { key: '', entry: null, remapped: false };
+
+        const key = trimmedName.toLowerCase();
+        const colorMode = options.colorMode === 'effective' ? 'effective' : 'base';
+        const normalizedSourceColor = normalizeHexColor(options.color, null);
+        const fallbackBaseColor = normalizeHexColor(suggestColorForName(trimmedName) || getNextColor());
+        const preferredAssignedColor = colorMode === 'effective'
+            ? normalizeHexColor(normalizedSourceColor, applyThemeReadabilityAndBrightness(fallbackBaseColor))
+            : applyThemeReadabilityAndBrightness(normalizedSourceColor || fallbackBaseColor);
+        const { color: assignedColor, remapped } = options.avoidConflicts === false
+            ? { color: normalizeHexColor(preferredAssignedColor, '#888888'), remapped: false }
+            : resolveUniqueAssignedColor(preferredAssignedColor, [key]);
+        const baseColor = colorMode === 'base' && normalizedSourceColor && !remapped
+            ? normalizedSourceColor
+            : deriveBaseColorFromEffectiveColor(assignedColor);
+
+        return {
+            key,
+            remapped,
+            entry: {
+                color: assignedColor,
+                baseColor,
+                name: trimmedName,
+                locked: !!options.locked,
+                aliases: normalizeAliases(options.aliases),
+                style: VALID_STYLES.has(options.style) ? options.style : '',
+                dialogueCount: Number.isFinite(options.dialogueCount) && options.dialogueCount > 0 ? Math.floor(options.dialogueCount) : 0,
+                group: String(options.group ?? '').trim()
+            }
+        };
     }
 
     // Phase 2B: Prefer characterId over avatar, use ?? for 0-safety
@@ -1498,8 +1611,14 @@
                     if (characterColors[key]) {
                         setEntryFromEffectiveColor(characterColors[key], newColor);
                     } else {
-                        const baseColor = deriveBaseColorFromEffectiveColor(newColor);
-                        characterColors[key] = { color: applyThemeReadabilityAndBrightness(baseColor), baseColor, name, locked: false, aliases: [], style: '', dialogueCount: 1, group: '' };
+                        const built = buildCharacterEntry(name, {
+                            color: newColor,
+                            colorMode: 'effective',
+                            locked: false,
+                            dialogueCount: 1
+                        });
+                        if (!built.entry) return;
+                        characterColors[key] = built.entry;
                     }
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
                     toast.success(`Assigned to ${name}`);
@@ -1550,17 +1669,29 @@
         let changed = false;
         for (const entry of Object.values(characterColors)) {
             if (!entry) continue;
+            const normalizedColor = normalizeHexColor(entry.color, null);
             if (needsMigration) {
-                entry.baseColor = deriveBaseColorFromEffectiveColor(entry.color);
+                if (normalizedColor) {
+                    entry.color = normalizedColor;
+                    entry.baseColor = deriveBaseColorFromEffectiveColor(normalizedColor);
+                } else {
+                    entry.baseColor = getBaseColor(entry);
+                    entry.color = applyThemeReadabilityAndBrightness(entry.baseColor);
+                }
                 changed = true;
             } else {
-                const normalizedBase = getBaseColor(entry);
+                const normalizedBase = normalizeHexColor(entry.baseColor, normalizedColor ? deriveBaseColorFromEffectiveColor(normalizedColor) : getBaseColor(entry));
                 if (normalizeHexColor(entry.baseColor, '') !== normalizedBase) {
                     entry.baseColor = normalizedBase;
                     changed = true;
                 }
+                if (normalizedColor) {
+                    if (normalizeHexColor(entry.color) !== normalizedColor) changed = true;
+                    entry.color = normalizedColor;
+                    continue;
+                }
             }
-            const effective = getEntryEffectiveColor(entry);
+            const effective = applyThemeReadabilityAndBrightness(getBaseColor(entry));
             if (normalizeHexColor(entry.color) !== effective) changed = true;
             entry.color = effective;
         }
@@ -1739,32 +1870,37 @@
         tritanopia: 'Use colorblind-safe colors (tritanopia type).',
     };
 
-    function describeDelimiterSymbol(symbol) {
-        if (symbol === '"') return 'double quote (")';
-        return `"${symbol}"`;
+    function getThoughtDelimiterSymbols() {
+        return [...new Set(String(settings.thoughtSymbols || '').split('').filter(s => s && s.trim()))];
+    }
+
+    function formatPromptLiteralSymbol(symbol) {
+        return `\`${String(symbol ?? '').replace(/`/g, '\\`')}\``;
     }
 
     function buildPromptInstruction() {
         if (!settings.enabled) return '';
         const { mode, minLightness, maxLightness } = getThemeLightnessBounds();
-        const thoughtSymbols = [...new Set(String(settings.thoughtSymbols || '').split('').filter(s => s && s.trim()))];
+        const thoughtSymbols = getThoughtDelimiterSymbols();
         const delimiterSymbols = [...new Set(['"', ...thoughtSymbols])];
-        const delimiterSymbolList = delimiterSymbols.map(describeDelimiterSymbol).join(', ');
-        const colorList = Object.entries(characterColors)
-            .filter(([, v]) => v.locked && v.color)
+        const delimiterSymbolList = delimiterSymbols.map(formatPromptLiteralSymbol).join(', ');
+        const colorEntries = Object.entries(characterColors)
+            .filter(([, v]) => v && getEntryEffectiveColor(v));
+        const colorList = colorEntries
             .map(([, v]) => `${v.name}=${getEntryEffectiveColor(v)}${v.style ? ` (${v.style})` : ''}`)
             .join(', ');
+        const reservedColors = [...new Set(colorEntries.map(([, v]) => getEntryEffectiveColor(v)))].join(', ');
         const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length).map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
         const brightnessOffset = getBrightnessOffset();
         const parts = [
             `[Font Color Rule: Wrap ALL dialogue in <font color=#RRGGBB> tags, and include surrounding dialogue/thought delimiter symbols inside the same colored span.`,
             mode === 'dark' ? 'Use readable colors for a dark background. HARD RULE: Never use dark colors in dark mode. Use medium-to-light colors only; avoid low-lightness shades.' : 'Use readable colors for a light background. HARD RULE: Never use bright colors in light mode. Use medium-to-dark colors only; avoid high-lightness shades.',
         ];
-        parts.push(`Delimiter rule: always color the actual delimiter symbols too (do not leave them uncolored). Delimiters: ${delimiterSymbolList}.`);
+        parts.push(`Delimiter rule: always color the actual delimiter characters too. Literal delimiters: ${delimiterSymbolList}.`);
         parts.push('Use normal dialogue punctuation. Do not format dialogue as an escaped string or wrap it in extra outer quote marks.');
         parts.push(`HARD RANGE: Keep color lightness between ${minLightness}% and ${maxLightness}% for ${mode} mode. This range is enforced.`);
-        if (brightnessOffset > 0) parts.push(`Apply +${brightnessOffset}% lightness offset, then clamp to the hard range.`);
-        if (brightnessOffset < 0) parts.push(`Apply -${Math.abs(brightnessOffset)}% lightness offset, then clamp to the hard range.`);
+        if (brightnessOffset > 0) parts.push(`For newly introduced characters only, bias the chosen color about +${brightnessOffset}% lightness before finalizing it, then clamp to the hard range.`);
+        if (brightnessOffset < 0) parts.push(`For newly introduced characters only, bias the chosen color about -${Math.abs(brightnessOffset)}% lightness before finalizing it, then clamp to the hard range.`);
         const customPalettePrompt = buildCustomPalettePrompt();
         if (customPalettePrompt) {
             parts.push(customPalettePrompt);
@@ -1772,13 +1908,14 @@
             const paletteDesc = PALETTE_DESCRIPTIONS[settings.colorTheme];
             if (paletteDesc) parts.push(paletteDesc);
         }
-        if (colorList) parts.push(`Keep: ${colorList}.`);
+        if (colorList) parts.push(`Established characters: ${colorList}. Keep these exact colors unchanged.`);
+        if (reservedColors) parts.push(`Reserved colors already in use: ${reservedColors}. For any new speaker, choose a distinct color that does not reuse or closely match them.`);
         if (aliases) parts.push(`Aliases: ${aliases}.`);
         if (!settings.disableNarration && settings.narratorColor) parts.push(`Narrator: ${applyThemeReadabilityAndBrightness(settings.narratorColor)}.`);
-        if (settings.thoughtSymbols) parts.push(`Inner thoughts using ${settings.thoughtSymbols} must color BOTH opening/closing symbol(s) and enclosed text with the speaker's color.`);
+        if (thoughtSymbols.length) parts.push(`If inner thoughts use these literal delimiters, color both delimiters and the enclosed text with the speaker's color: ${thoughtSymbols.map(formatPromptLiteralSymbol).join(', ')}.`);
         if (settings.highlightMode) parts.push('Add background highlight.');
         if (settings.cssEffects) parts.push(`For intense emotion/magic/distortion, use CSS transforms: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase. Wrap in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.`);
-        parts.push('Give new characters unique colors.');
+        parts.push('Give every newly introduced character a unique color.');
         parts.push('End your response with: [COLORS:Name=#RRGGBB,Name2=#RRGGBB] for all speakers.');
         if (!settings.disableNarration) parts.push('Include Narrator=#RRGGBB if narration is used.');
         parts.push('Include nicknames as Name(Nick)=#RRGGBB.]');
@@ -2127,7 +2264,7 @@
         const lookup = new Map();
         for (const entry of Object.values(rawColors || {})) {
             if (!entry || isCompositeSpeakerLabel(entry.name)) continue;
-            registerLookupAssignment(lookup, entry.name, normalizeHexColor(entry.color, getBaseColor(entry)), entry.aliases);
+            registerLookupAssignment(lookup, entry.name, getEntryEffectiveColor(entry), entry.aliases);
         }
         return lookup;
     }
@@ -2160,19 +2297,23 @@
             const { name, nicknames } = parseNameWithNicknames(rawName);
             const rawColor = pair.substring(eqIdx + 1).trim();
             if (!name || !rawColor || !/^#[a-fA-F0-9]{6}$/i.test(rawColor)) continue;
-            const baseColor = normalizeHexColor(rawColor);
-            const color = applyThemeReadabilityAndBrightness(baseColor);
+            const assignedColor = normalizeHexColor(rawColor);
             const key = name.toLowerCase();
             if (characterColors[key]) {
                 characterColors[key].dialogueCount = (characterColors[key].dialogueCount || 0) + 1;
-                if (!characterColors[key].locked) {
-                    characterColors[key].baseColor = baseColor;
-                    characterColors[key].color = color;
-                } else {
-                    characterColors[key].baseColor = getBaseColor(characterColors[key]);
+                if (!normalizeHexColor(characterColors[key].color, null)) {
+                    setEntryFromEffectiveColor(characterColors[key], assignedColor);
                 }
+                characterColors[key].baseColor = normalizeHexColor(characterColors[key].baseColor, deriveBaseColorFromEffectiveColor(getEntryEffectiveColor(characterColors[key])));
             } else {
-                characterColors[key] = { color, baseColor, name, locked: settings.autoLockDetected !== false, aliases: [], style: '', dialogueCount: 1, group: '' };
+                const built = buildCharacterEntry(name, {
+                    color: assignedColor,
+                    colorMode: 'effective',
+                    locked: settings.autoLockDetected !== false,
+                    dialogueCount: 1
+                });
+                if (!built.entry) continue;
+                characterColors[key] = built.entry;
                 foundNew = true;
             }
             if (nicknames.length) {
@@ -2338,8 +2479,8 @@
 
     function buildDialogueRegex() {
         const delimiters = new Set(['"']);
-        for (const ch of (settings.thoughtSymbols || '')) {
-            if (ch.trim()) delimiters.add(ch);
+        for (const ch of getThoughtDelimiterSymbols()) {
+            delimiters.add(ch);
         }
         const patterns = [];
         for (const delimiter of delimiters) {
@@ -2379,11 +2520,11 @@
                 pendingCompositeAssignments.push(assignment);
                 continue;
             }
-            registerLookupAssignment(lookup, assignment.name, applyThemeReadabilityAndBrightness(assignment.color), assignment.aliases, true);
+            registerLookupAssignment(lookup, assignment.name, assignment.color, assignment.aliases, true);
         }
         for (const assignment of pendingCompositeAssignments) {
             if (isReducibleCompositeSpeakerName(assignment.name, lookup)) continue;
-            registerLookupAssignment(lookup, assignment.name, applyThemeReadabilityAndBrightness(assignment.color), assignment.aliases, true);
+            registerLookupAssignment(lookup, assignment.name, assignment.color, assignment.aliases, true);
         }
         return lookup;
     }
@@ -2424,8 +2565,14 @@
         if (!trimmedName) return { key: '', entry: null, created: false };
         const key = trimmedName.toLowerCase();
         if (characterColors[key]) return { key, entry: characterColors[key], created: false };
-        const baseColor = normalizeHexColor(color, suggestColorForName(trimmedName) || getNextColor());
-        characterColors[key] = { color: applyThemeReadabilityAndBrightness(baseColor), baseColor, name: trimmedName, locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
+        const built = buildCharacterEntry(trimmedName, {
+            color,
+            colorMode: 'base',
+            locked: false,
+            dialogueCount: 0
+        });
+        if (!built.entry) return { key, entry: null, created: false };
+        characterColors[key] = built.entry;
         return { key, entry: characterColors[key], created: true };
     }
 
@@ -2547,7 +2694,7 @@
             // Step 2: Build current name → newColor lookup from characterColors (including aliases).
             const nameToNewColor = {};
             for (const entry of Object.values(characterColors)) {
-                const adjusted = normalizeHexColor(entry.color);
+                const adjusted = getEntryEffectiveColor(entry);
                 nameToNewColor[entry.name.toLowerCase()] = adjusted;
                 for (const alias of (entry.aliases || [])) {
                     nameToNewColor[alias.toLowerCase()] = adjusted;
@@ -2812,14 +2959,7 @@
             clearTimeout(brightnessRecolorTimer);
             brightnessRecolorTimer = null;
         }
-        if (immediate) {
-            recolorAllMessages();
-            return;
-        }
-        brightnessRecolorTimer = setTimeout(() => {
-            brightnessRecolorTimer = null;
-            recolorAllMessages();
-        }, 220);
+        return immediate;
     }
 
     function onNewMessage() {
@@ -2916,16 +3056,26 @@
     function addCharacter(name, color) {
         if (!name.trim()) return;
         const key = name.trim().toLowerCase();
-        const baseColor = normalizeHexColor(color, suggestColorForName(name) || getNextColor());
-        characterColors[key] = { color: applyThemeReadabilityAndBrightness(baseColor), baseColor, name: name.trim(), locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
+        if (characterColors[key]) {
+            setEntryFromBaseColor(characterColors[key], normalizeHexColor(color, suggestColorForName(name) || getNextColor()));
+        } else {
+            const built = buildCharacterEntry(name.trim(), {
+                color,
+                colorMode: 'base',
+                locked: false,
+                dialogueCount: 0
+            });
+            if (!built.entry) return;
+            characterColors[key] = built.entry;
+        }
         saveHistory(); saveData(); updateCharList(); injectPrompt();
     }
 
     function swapColors(key1, key2) {
-        const color1 = getBaseColor(characterColors[key1]);
-        const color2 = getBaseColor(characterColors[key2]);
-        setEntryFromBaseColor(characterColors[key1], color2);
-        setEntryFromBaseColor(characterColors[key2], color1);
+        const color1 = getEntryEffectiveColor(characterColors[key1]);
+        const color2 = getEntryEffectiveColor(characterColors[key2]);
+        setEntryFromEffectiveColor(characterColors[key1], color2);
+        setEntryFromEffectiveColor(characterColors[key2], color1);
         saveHistory(); saveData(); updateCharList(); injectPrompt();
     }
 
@@ -3242,7 +3392,7 @@
                             <button id="dc-palette-generate-inline" class="menu_button" style="padding:2px 6px;font-size:0.8em;" title="Generate custom palette from name and notes" data-help="Generate a custom palette from the name and notes fields.">Generate</button>
                         </div>
                         <label class="checkbox_label"><input type="checkbox" id="dc-overwrite-existing" data-help="Allow replacing an existing custom palette with the same name."><span>Overwrite existing custom palette</span></label>
-                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Bright:</label><input type="range" id="dc-brightness" min="-100" max="100" value="0" style="flex:1;" data-help="Shift effective color lightness up or down. Does not change stored base colors."><span id="dc-bright-val">0</span></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Bright:</label><input type="range" id="dc-brightness" min="-100" max="100" value="0" style="flex:1;" data-help="Bias newly generated or regenerated colors lighter or darker. Established character assignments stay unchanged until you explicitly change them."><span id="dc-bright-val">0</span></div>
                     </div>
                 </details>
                 <details class="dc-section">
@@ -3339,8 +3489,8 @@
         $('dc-disable-toasts').onchange = e => { settings.disableToasts = e.target.checked; saveData(); };
         $('dc-theme').onchange = e => { settings.themeMode = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); if (settings.autoRecolor) recolorAllMessages(); };
         $('dc-palette').onchange = e => { settings.colorTheme = e.target.value; saveData(); injectPrompt(); };
-        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); triggerBrightnessAutoRecolor(false); };
-        $('dc-brightness').onchange = () => { triggerBrightnessAutoRecolor(true); };
+        $('dc-brightness').oninput = e => { settings.brightness = parseInt(e.target.value); $('dc-bright-val').textContent = e.target.value; invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); };
+        $('dc-brightness').onchange = () => { invalidateThemeCache(); syncAllEffectiveColors(); saveData(); updateCharList(); injectPrompt(); };
         $('dc-narrator').oninput = e => { settings.narratorColor = e.target.value; saveData(); injectPrompt(); };
         $('dc-narrator-clear').onclick = () => { settings.narratorColor = ''; $('dc-narrator').value = '#888888'; saveData(); injectPrompt(); };
         $('dc-thought-symbols').oninput = e => { settings.thoughtSymbols = e.target.value; saveData(); injectPrompt(); };
@@ -3397,7 +3547,14 @@
                     if (characterColors[key]) {
                         setEntryFromBaseColor(characterColors[key], color);
                     } else {
-                        characterColors[key] = { color: applyThemeReadabilityAndBrightness(color), baseColor: normalizeHexColor(color), name: char.name, locked: false, aliases: [], style: '', dialogueCount: 0, group: '' };
+                        const built = buildCharacterEntry(char.name, {
+                            color,
+                            colorMode: 'base',
+                            locked: false,
+                            dialogueCount: 0
+                        });
+                        if (!built.entry) return;
+                        characterColors[key] = built.entry;
                     }
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
                     toast.success(`Set ${char.name} to ${color}`);
