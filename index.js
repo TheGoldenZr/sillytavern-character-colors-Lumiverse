@@ -1912,7 +1912,7 @@
         if (reservedColors) parts.push(`Reserved colors already in use: ${reservedColors}. For any new speaker, choose a distinct color that does not reuse or closely match them.`);
         if (aliases) parts.push(`Aliases: ${aliases}.`);
         if (!settings.disableNarration && settings.narratorColor) parts.push(`Narrator: ${applyThemeReadabilityAndBrightness(settings.narratorColor)}.`);
-        if (thoughtSymbols.length) parts.push(`If inner thoughts use these literal delimiters, color both delimiters and the enclosed text with the speaker's color: ${thoughtSymbols.map(formatPromptLiteralSymbol).join(', ')}.`);
+        if (thoughtSymbols.length) parts.push(`For inner thoughts, use these literal delimiters and color both the delimiters and enclosed text with the speaker's color: ${thoughtSymbols.map(formatPromptLiteralSymbol).join(', ')}.`);
         if (settings.highlightMode) parts.push('Add background highlight.');
         if (settings.cssEffects) parts.push(`For intense emotion/magic/distortion, use CSS transforms: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase. Wrap in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.`);
         parts.push('Give every newly introduced character a unique color.');
