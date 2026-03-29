@@ -2001,7 +2001,7 @@
         if (injectDebouncedTimer) clearTimeout(injectDebouncedTimer);
         injectDebouncedTimer = setTimeout(() => {
             let promptText = '';
-            if (settings.enabled && settings.promptMode !== 'system-prompt') {
+            if (settings.enabled && settings.promptMode !== 'macro') {
                 promptText = settings.promptMode === 'minimal'
                     ? buildMinimalPromptInstruction()
                     : buildPromptInstruction();
@@ -2017,11 +2017,10 @@
         const container = document.getElementById('dc-system-prompt-container');
         if (!container) return;
 
-        if (settings.promptMode === 'system-prompt' && settings.enabled) {
-            const promptText = buildMinimalPromptInstruction();
+        if (settings.promptMode === 'macro' && settings.enabled) {
             container.style.display = 'block';
             const textarea = document.getElementById('dc-system-prompt-text');
-            if (textarea) textarea.value = promptText;
+            if (textarea) textarea.value = '{{dialoguecolors}}';
         } else {
             container.style.display = 'none';
         }
@@ -3488,11 +3487,11 @@
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;" data-help="Set narrator fallback color used when narration coloring is enabled."><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Clear custom narrator color and return to default.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;" data-help="Symbols used to detect and color inner-thought dialogue."><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Append another thought symbol to the list.">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Remove all thought symbols.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;" data-help="How far from the chat end the system color prompt is injected."></div>
-                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Mode:</label><select id="dc-prompt-mode" class="text_pole" style="flex:1;" data-help="Inject (verbose): auto-inject full prompt. Minimal: auto-inject streamlined prompt. System: display copyable prompt for manual use."><option value="inject">Inject (verbose)</option><option value="minimal">Minimal</option><option value="system-prompt">System Prompt</option></select></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Mode:</label><select id="dc-prompt-mode" class="text_pole" style="flex:1;" data-help="Inject (verbose): auto-inject full prompt. Minimal: auto-inject streamlined prompt. Macro: use {{dialoguecolors}} in your prompt."><option value="inject">Inject (verbose)</option><option value="minimal">Minimal</option><option value="macro">Macro</option></select></div>
                         <div id="dc-system-prompt-container" style="display:none;margin-top:8px;">
-                            <label style="font-weight:bold;margin-bottom:4px;display:block;">System Prompt (copy to SillyTavern):</label>
-                            <textarea id="dc-system-prompt-text" readonly class="text_pole" style="width:100%;min-height:120px;font-size:0.75em;font-family:monospace;resize:vertical;"></textarea>
-                            <button id="dc-copy-system-prompt" class="menu_button" style="margin-top:4px;width:100%;">Copy to Clipboard</button>
+                            <label style="font-weight:bold;margin-bottom:4px;display:block;">Add to your system prompt:</label>
+                            <textarea id="dc-system-prompt-text" readonly class="text_pole" style="width:100%;min-height:60px;font-size:0.75em;font-family:monospace;resize:vertical;">{{dialoguecolors}}</textarea>
+                            <button id="dc-copy-system-prompt" class="menu_button" style="margin-top:4px;width:100%;">Copy Macro</button>
                         </div>
                     </div>
                 </details>
@@ -3586,7 +3585,7 @@
                 textarea.select();
                 document.execCommand('copy');
                 $('dc-copy-system-prompt').textContent = 'Copied!';
-                setTimeout(() => { $('dc-copy-system-prompt').textContent = 'Copy to Clipboard'; }, 1500);
+                setTimeout(() => { $('dc-copy-system-prompt').textContent = 'Copy Macro'; }, 1500);
             }
         };
         $('dc-help-toggle').onchange = e => { settings.showControlHelp = e.target.checked; saveData(); renderControlHelpPanel(); };
@@ -3860,10 +3859,19 @@
         runtimeState.eventsRegistered = true;
     }
 
+    function registerMacro() {
+        if (typeof window.registerMacro === 'function') {
+            window.registerMacro('dialoguecolors', () => {
+                return settings.enabled ? buildMinimalPromptInstruction() : '';
+            });
+        }
+    }
+
     function init() {
         loadData();
         setTimeout(() => ensureRegexScript(), 1000);
         setupContextMenu();
+        registerMacro();
 
         // Phase 6C: Inject mobile CSS for larger touch targets
         let mobileStyle = document.getElementById('dc-mobile-style');
