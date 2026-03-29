@@ -3146,6 +3146,7 @@
         setEntryFromEffectiveColor(characterColors[key1], color2);
         setEntryFromEffectiveColor(characterColors[key2], color1);
         saveHistory(); saveData(); updateCharList(); injectPrompt();
+        if (settings.autoRecolor) recolorAllMessages();
     }
 
     // Phase 5B: Alias chips, Phase 6A: Batch checkboxes, Phase 6B: Group headers, Phase 5D: Harmony on dblclick
