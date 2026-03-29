@@ -3860,16 +3860,29 @@
     }
 
     function registerDialogueColorsMacro() {
-        if (typeof registerMacro === 'function') {
-            registerMacro('dialoguecolors', () => {
-                if (!settings.enabled) return '';
-                const prompt = buildMinimalPromptInstruction();
-                console.log('[Dialogue Colors] Macro expanded:', prompt);
-                return prompt;
-            });
-            console.log('[Dialogue Colors] Macro registered: {{dialoguecolors}}');
-        } else {
-            console.warn('[Dialogue Colors] registerMacro function not available');
+        try {
+            const context = getContext();
+            if (context && context.registerMacro) {
+                context.registerMacro('dialoguecolors', () => {
+                    if (!settings.enabled) return '';
+                    const prompt = buildMinimalPromptInstruction();
+                    console.log('[Dialogue Colors] Macro expanded:', prompt);
+                    return prompt;
+                });
+                console.log('[Dialogue Colors] Macro registered via context: {{dialoguecolors}}');
+            } else if (typeof registerMacro === 'function') {
+                registerMacro('dialoguecolors', () => {
+                    if (!settings.enabled) return '';
+                    const prompt = buildMinimalPromptInstruction();
+                    console.log('[Dialogue Colors] Macro expanded:', prompt);
+                    return prompt;
+                });
+                console.log('[Dialogue Colors] Macro registered via import: {{dialoguecolors}}');
+            } else {
+                console.warn('[Dialogue Colors] registerMacro not available - macro mode will not work');
+            }
+        } catch (e) {
+            console.error('[Dialogue Colors] Failed to register macro:', e);
         }
     }
 
