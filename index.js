@@ -3862,8 +3862,14 @@
     function registerDialogueColorsMacro() {
         if (typeof registerMacro === 'function') {
             registerMacro('dialoguecolors', () => {
-                return settings.enabled ? buildMinimalPromptInstruction() : '';
+                if (!settings.enabled) return '';
+                const prompt = buildMinimalPromptInstruction();
+                console.log('[Dialogue Colors] Macro expanded:', prompt);
+                return prompt;
             });
+            console.log('[Dialogue Colors] Macro registered: {{dialoguecolors}}');
+        } else {
+            console.warn('[Dialogue Colors] registerMacro function not available');
         }
     }
 
