@@ -1,4 +1,5 @@
 # Dialogue Colors Extension
+#dc-ext { max-height: 80vh; overflow-y: auto; }
 #dc-ext .inline-drawer-content { font-size: 0.9em; }
 .cc-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .cc-row select { flex: 1; padding: 4px; }
