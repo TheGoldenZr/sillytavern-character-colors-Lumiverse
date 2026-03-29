@@ -3487,11 +3487,12 @@
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;" data-help="Set narrator fallback color used when narration coloring is enabled."><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Clear custom narrator color and return to default.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;" data-help="Symbols used to detect and color inner-thought dialogue."><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Append another thought symbol to the list.">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Remove all thought symbols.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;" data-help="How far from the chat end the system color prompt is injected."></div>
-                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Mode:</label><select id="dc-prompt-mode" class="text_pole" style="flex:1;" data-help="Inject (verbose): auto-inject full prompt. Minimal: auto-inject streamlined prompt. Macro: use {{dialoguecolors}} in your prompt."><option value="inject">Inject (verbose)</option><option value="minimal">Minimal</option><option value="macro">Macro</option></select></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Mode:</label><select id="dc-prompt-mode" class="text_pole" style="flex:1;" data-help="Inject: auto-inject prompt at depth. Macro: use {{dialoguecolors}} in your prompt."><option value="inject">Inject (verbose)</option><option value="minimal">Inject (minimal)</option><option value="macro">Macro</option></select></div>
                         <div id="dc-system-prompt-container" style="display:none;margin-top:8px;">
                             <label style="font-weight:bold;margin-bottom:4px;display:block;">Add to your system prompt:</label>
                             <textarea id="dc-system-prompt-text" readonly class="text_pole" style="width:100%;min-height:60px;font-size:0.75em;font-family:monospace;resize:vertical;">{{dialoguecolors}}</textarea>
                             <button id="dc-copy-system-prompt" class="menu_button" style="margin-top:4px;width:100%;">Copy Macro</button>
+                            <div style="margin-top:4px;font-size:0.85em;opacity:0.7;">Macro uses current Mode setting (verbose/minimal)</div>
                         </div>
                     </div>
                 </details>
@@ -3862,22 +3863,17 @@
     function registerDialogueColorsMacro() {
         try {
             const context = getContext();
+            const macroCallback = () => {
+                if (!settings.enabled) return '';
+                const prompt = settings.promptMode === 'minimal'
+                    ? buildMinimalPromptInstruction()
+                    : buildPromptInstruction();
+                return prompt;
+            };
+
             if (context && context.registerMacro) {
-                context.registerMacro('dialoguecolors', () => {
-                    if (!settings.enabled) return '';
-                    const prompt = buildMinimalPromptInstruction();
-                    console.log('[Dialogue Colors] Macro expanded:', prompt);
-                    return prompt;
-                });
-                console.log('[Dialogue Colors] Macro registered via context: {{dialoguecolors}}');
-            } else if (typeof registerMacro === 'function') {
-                registerMacro('dialoguecolors', () => {
-                    if (!settings.enabled) return '';
-                    const prompt = buildMinimalPromptInstruction();
-                    console.log('[Dialogue Colors] Macro expanded:', prompt);
-                    return prompt;
-                });
-                console.log('[Dialogue Colors] Macro registered via import: {{dialoguecolors}}');
+                context.registerMacro('dialoguecolors', macroCallback);
+                console.log('[Dialogue Colors] Macro registered: {{dialoguecolors}}');
             } else {
                 console.warn('[Dialogue Colors] registerMacro not available - macro mode will not work');
             }
