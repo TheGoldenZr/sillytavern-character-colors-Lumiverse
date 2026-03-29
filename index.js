@@ -2,7 +2,7 @@
     'use strict';
 
     const { extension_settings, saveSettingsDebounced, getContext } = await import('../../../extensions.js');
-    const { eventSource, event_types, setExtensionPrompt, saveCharacterDebounced, getCharacters, extension_prompt_types, extension_prompt_roles, generateQuietPrompt } = await import('../../../../script.js');
+    const { eventSource, event_types, setExtensionPrompt, saveCharacterDebounced, getCharacters, extension_prompt_types, extension_prompt_roles, generateQuietPrompt, registerMacro } = await import('../../../../script.js');
     const RUNTIME_GUARD_KEY = '__dialogueColorsRuntime_v1';
     if (globalThis[RUNTIME_GUARD_KEY]?.initialized) {
         console.warn('[Dialogue Colors] Runtime already initialized; skipping duplicate script execution.');
@@ -3859,9 +3859,9 @@
         runtimeState.eventsRegistered = true;
     }
 
-    function registerMacro() {
-        if (typeof window.registerMacro === 'function') {
-            window.registerMacro('dialoguecolors', () => {
+    function registerDialogueColorsMacro() {
+        if (typeof registerMacro === 'function') {
+            registerMacro('dialoguecolors', () => {
                 return settings.enabled ? buildMinimalPromptInstruction() : '';
             });
         }
@@ -3871,7 +3871,7 @@
         loadData();
         setTimeout(() => ensureRegexScript(), 1000);
         setupContextMenu();
-        registerMacro();
+        registerDialogueColorsMacro();
 
         // Phase 6C: Inject mobile CSS for larger touch targets
         let mobileStyle = document.getElementById('dc-mobile-style');
