@@ -490,6 +490,7 @@
             }
         });
         saveHistory(); saveData(); updateCharList(); injectPrompt();
+        if (settings.autoRecolor) recolorAllMessages();
         toast.success(`Fixed: ${fixedPairs.join('; ')}`);
     }
 
