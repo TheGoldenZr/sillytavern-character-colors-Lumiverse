@@ -126,7 +126,7 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, disableToasts: false, autoColorize: false, llmConnectionProfile: null, colorSchemaVersion: COLOR_SCHEMA_VERSION };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, disableToasts: false, autoColorize: false, llmConnectionProfile: null, colorSchemaVersion: COLOR_SCHEMA_VERSION, promptMode: 'inject' };
     const TOGGLE_SETTING_DEFAULTS = Object.freeze({
         enabled: true,
         highlightMode: false,
@@ -1937,6 +1937,59 @@
         return `Use custom palette "${paletteName}": ${colors}.${notesPart} Prefer these hues when assigning new character colors.`;
     }
 
+    function buildMinimalPromptInstruction() {
+        if (!settings.enabled) return '';
+        const { mode, minLightness, maxLightness } = getThemeLightnessBounds();
+        const thoughtSymbols = getThoughtDelimiterSymbols();
+        const delimiterSymbols = [...new Set(['"', ...thoughtSymbols])];
+        const delimiterList = delimiterSymbols.map(formatPromptLiteralSymbol).join(', ');
+        const colorEntries = Object.entries(characterColors)
+            .filter(([, v]) => v && getEntryEffectiveColor(v));
+        const colorList = colorEntries
+            .map(([, v]) => `${v.name}=${getEntryEffectiveColor(v)}${v.style ? ` (${v.style})` : ''}`)
+            .join(', ');
+        const reservedColors = [...new Set(colorEntries.map(([, v]) => getEntryEffectiveColor(v)))].join(', ');
+        const aliases = Object.entries(characterColors).filter(([, v]) => v.aliases?.length)
+            .map(([, v]) => `${v.name}/${v.aliases.join('/')}`).join('; ');
+        const brightnessOffset = getBrightnessOffset();
+
+        const parts = [];
+
+        const modeGuidance = mode === 'dark'
+            ? 'readable colors for dark background (medium-to-light)'
+            : 'readable colors for light background (medium-to-dark)';
+        const brightnessClause = brightnessOffset !== 0
+            ? ` New characters: ${brightnessOffset > 0 ? '+' : ''}${brightnessOffset}% lightness bias.`
+            : '';
+        parts.push(`[Color dialogue with <font color=#RRGGBB> tags. Include delimiters (${delimiterList}) inside tags. ${mode} mode: ${minLightness}-${maxLightness}% lightness, ${modeGuidance}.${brightnessClause}`);
+
+        const customPalettePrompt = buildCustomPalettePrompt();
+        if (customPalettePrompt) {
+            parts.push(customPalettePrompt);
+        } else {
+            const paletteDesc = PALETTE_DESCRIPTIONS[settings.colorTheme];
+            if (paletteDesc) parts.push(paletteDesc);
+        }
+
+        if (colorList) parts.push(`Established: ${colorList}.`);
+        if (reservedColors) parts.push(`Reserved: ${reservedColors}. New speakers need distinct colors.`);
+        if (aliases) parts.push(`Aliases: ${aliases}.`);
+        if (!settings.disableNarration && settings.narratorColor) {
+            parts.push(`Narrator: ${applyThemeReadabilityAndBrightness(settings.narratorColor)}.`);
+        }
+        if (thoughtSymbols.length) {
+            parts.push(`Thoughts: color delimiters+text with speaker's color (${thoughtSymbols.map(formatPromptLiteralSymbol).join(', ')}).`);
+        }
+        if (settings.highlightMode) parts.push('Add background highlight.');
+        if (settings.cssEffects) {
+            parts.push(`CSS effects: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.`);
+        }
+
+        parts.push(`New characters get unique colors. End with: [COLORS:Name=#RRGGBB,Name2=#RRGGBB${!settings.disableNarration ? ',Narrator=#RRGGBB' : ''},Name(Nick)=#RRGGBB]]`);
+
+        return parts.join(' ');
+    }
+
     function buildColoredPromptPreview() {
         if (!settings.enabled) return '<span style="opacity:0.5">(disabled)</span>';
         const entries = Object.entries(characterColors);
@@ -1947,10 +2000,31 @@
     function injectPrompt() {
         if (injectDebouncedTimer) clearTimeout(injectDebouncedTimer);
         injectDebouncedTimer = setTimeout(() => {
-            setExtensionPrompt(MODULE_NAME, settings.enabled ? buildPromptInstruction() : '', extension_prompt_types.IN_CHAT, settings.promptDepth, false, extension_prompt_roles.SYSTEM);
+            let promptText = '';
+            if (settings.enabled && settings.promptMode !== 'system-prompt') {
+                promptText = settings.promptMode === 'minimal'
+                    ? buildMinimalPromptInstruction()
+                    : buildPromptInstruction();
+            }
+            setExtensionPrompt(MODULE_NAME, promptText, extension_prompt_types.IN_CHAT, settings.promptDepth, false, extension_prompt_roles.SYSTEM);
             const p = document.getElementById('dc-prompt-preview');
             if (p) p.innerHTML = buildColoredPromptPreview();
+            updateSystemPromptDisplay();
         }, 50);
+    }
+
+    function updateSystemPromptDisplay() {
+        const container = document.getElementById('dc-system-prompt-container');
+        if (!container) return;
+
+        if (settings.promptMode === 'system-prompt' && settings.enabled) {
+            const promptText = buildMinimalPromptInstruction();
+            container.style.display = 'block';
+            const textarea = document.getElementById('dc-system-prompt-text');
+            if (textarea) textarea.value = promptText;
+        } else {
+            container.style.display = 'none';
+        }
     }
 
     // Phase 3A: Legend with event listener cleanup
@@ -3360,11 +3434,13 @@
         if ($('dc-narrator')) $('dc-narrator').value = settings.narratorColor || '#888888';
         if ($('dc-thought-symbols')) $('dc-thought-symbols').value = settings.thoughtSymbols || '';
         if ($('dc-prompt-depth')) $('dc-prompt-depth').value = settings.promptDepth ?? 4;
+        if ($('dc-prompt-mode')) $('dc-prompt-mode').value = settings.promptMode || 'inject';
         if ($('dc-help-toggle')) $('dc-help-toggle').checked = !!settings.showControlHelp;
         renderControlHelpPanel();
         applyControlHelpText();
         refreshPresetDropdown();
         refreshPaletteDropdown();
+        updateSystemPromptDisplay();
     }
 
     // Phase 6C: Mobile-optimized UI with collapsible <details> sections
@@ -3412,6 +3488,12 @@
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Narr:</label><input type="color" id="dc-narrator" value="#888888" style="width:24px;height:20px;" data-help="Set narrator fallback color used when narration coloring is enabled."><button id="dc-narrator-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Clear custom narrator color and return to default.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;" data-help="Symbols used to detect and color inner-thought dialogue."><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Append another thought symbol to the list.">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Remove all thought symbols.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;" data-help="How far from the chat end the system color prompt is injected."></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Mode:</label><select id="dc-prompt-mode" class="text_pole" style="flex:1;" data-help="Inject (verbose): auto-inject full prompt. Minimal: auto-inject streamlined prompt. System: display copyable prompt for manual use."><option value="inject">Inject (verbose)</option><option value="minimal">Minimal</option><option value="system-prompt">System Prompt</option></select></div>
+                        <div id="dc-system-prompt-container" style="display:none;margin-top:8px;">
+                            <label style="font-weight:bold;margin-bottom:4px;display:block;">System Prompt (copy to SillyTavern):</label>
+                            <textarea id="dc-system-prompt-text" readonly class="text_pole" style="width:100%;min-height:120px;font-size:0.75em;font-family:monospace;resize:vertical;"></textarea>
+                            <button id="dc-copy-system-prompt" class="menu_button" style="margin-top:4px;width:100%;">Copy to Clipboard</button>
+                        </div>
                     </div>
                 </details>
                 <details class="dc-section">
@@ -3497,6 +3579,16 @@
         $('dc-thought-add').onclick = () => { const s = prompt('Add thought symbol (e.g., *, 「, 『):'); if (s?.trim()) { settings.thoughtSymbols = (settings.thoughtSymbols || '') + s.trim(); $('dc-thought-symbols').value = settings.thoughtSymbols; saveData(); injectPrompt(); } };
         $('dc-thought-clear').onclick = () => { settings.thoughtSymbols = ''; $('dc-thought-symbols').value = ''; saveData(); injectPrompt(); };
         $('dc-prompt-depth').oninput = e => { settings.promptDepth = parseInt(e.target.value) || 0; saveData(); injectPrompt(); };
+        $('dc-prompt-mode').onchange = e => { settings.promptMode = e.target.value; saveData(); injectPrompt(); };
+        $('dc-copy-system-prompt').onclick = () => {
+            const textarea = $('dc-system-prompt-text');
+            if (textarea) {
+                textarea.select();
+                document.execCommand('copy');
+                $('dc-copy-system-prompt').textContent = 'Copied!';
+                setTimeout(() => { $('dc-copy-system-prompt').textContent = 'Copy to Clipboard'; }, 1500);
+            }
+        };
         $('dc-help-toggle').onchange = e => { settings.showControlHelp = e.target.checked; saveData(); renderControlHelpPanel(); };
         $('dc-scan').onclick = scanAllMessages;
         $('dc-clear').onclick = () => {
