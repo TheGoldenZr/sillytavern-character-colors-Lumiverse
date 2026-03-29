@@ -74,6 +74,14 @@ Effects are visible in chat but stripped from the prompt context.
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
 
+## What's New in 4.0.0
+
+- **Streamlined prompt system** — new minimal prompt mode (~40% shorter, removes redundant emphasis like "HARD RULE", "HARD RANGE")
+- **Macro support** — use `{{dialoguecolors}}` macro in your system prompt for flexible placement
+- **Role selection** — choose System or User injection (User role helps stubborn models like Kimi K2.5, GLM-5/5.1 with None/Merge post-processing)
+- **Global behavior settings** — Depth, Role, and Mode now persist across all chats
+- **Bug fixes** — brightness slider now updates unlocked characters, extension panel overflow fixed, auto-conflict resolution now recolors chat
+
 ## What's New in 3.5.2
 
 - **Stable established colors** — once a character has an assigned color, later replies keep that exact assignment instead of re-deriving it from the current brightness slider.
@@ -167,7 +175,10 @@ Effects are visible in chat but stripped from the prompt context.
 | **Thoughts** | Symbols used to detect and color inner-thought dialogue (e.g., `*`, `『』`) |
 | **+** (Thought) | Add another thought symbol |
 | **Clear** (Thought) | Remove all thought symbols |
-| **Prompt depth** | How many messages from the chat end to inject the color prompt (default: 4) |
+| **Depth** | How many messages from the chat end to inject the color prompt (default: 4) |
+| **Role** | System or User injection — User role helps models that ignore system prompts with None/Merge post-processing |
+| **Mode** | Inject (auto-inject prompt at depth) or Macro (use `{{dialoguecolors}}` in your system prompt) |
+| **Copy Macro** | Copy `{{dialoguecolors}}` macro to clipboard (appears when Mode is set to Macro) |
 
 ### Actions Section
 | Control | Function |
