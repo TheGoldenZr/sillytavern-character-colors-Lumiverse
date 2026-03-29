@@ -126,7 +126,7 @@
     let swapMode = null;
     let sortMode = 'name';
     let searchTerm = '';
-    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, disableToasts: false, autoColorize: false, llmConnectionProfile: null, colorSchemaVersion: COLOR_SCHEMA_VERSION, promptMode: 'inject', promptRole: 'system' };
+    let settings = { enabled: true, themeMode: 'auto', narratorColor: '', colorTheme: 'pastel', brightness: 0, highlightMode: false, autoScanOnLoad: true, showLegend: false, thoughtSymbols: '*', disableNarration: true, shareColorsGlobally: false, cssEffects: false, autoScanNewMessages: true, autoLockDetected: true, enableRightClick: false, llmEnhanceCustomPalettes: true, promptDepth: 4, showControlHelp: true, autoRecolor: true, disableToasts: false, autoColorize: false, llmConnectionProfile: null, colorSchemaVersion: COLOR_SCHEMA_VERSION, promptMode: 'minimal', promptRole: 'system' };
     const TOGGLE_SETTING_DEFAULTS = Object.freeze({
         enabled: true,
         highlightMode: false,
@@ -1376,15 +1376,11 @@
     function syncAllEffectiveColors() {
         for (const entry of Object.values(characterColors)) {
             if (!entry) continue;
-            const currentColor = normalizeHexColor(entry.color, null);
-            if (currentColor) {
-                entry.color = currentColor;
-                if (!normalizeHexColor(entry.baseColor, null)) {
-                    entry.baseColor = deriveBaseColorFromEffectiveColor(currentColor);
-                }
-                continue;
+            if (entry.locked) continue;
+            const baseColor = getBaseColor(entry);
+            if (baseColor) {
+                setEntryFromBaseColor(entry, baseColor);
             }
-            setEntryFromBaseColor(entry, getBaseColor(entry));
         }
     }
 
@@ -3435,7 +3431,7 @@
         if ($('dc-thought-symbols')) $('dc-thought-symbols').value = settings.thoughtSymbols || '';
         if ($('dc-prompt-depth')) $('dc-prompt-depth').value = settings.promptDepth ?? 4;
         if ($('dc-prompt-role')) $('dc-prompt-role').value = settings.promptRole || 'system';
-        if ($('dc-prompt-mode')) $('dc-prompt-mode').value = settings.promptMode || 'inject';
+        if ($('dc-prompt-mode')) $('dc-prompt-mode').value = settings.promptMode || 'minimal';
         if ($('dc-help-toggle')) $('dc-help-toggle').checked = !!settings.showControlHelp;
         renderControlHelpPanel();
         applyControlHelpText();
@@ -3490,7 +3486,7 @@
                         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><label style="width:50px;" title="Symbols for inner thoughts (*etc)">Think:</label><input type="text" id="dc-thought-symbols" placeholder="*" class="text_pole" style="width:60px;padding:3px;" data-help="Symbols used to detect and color inner-thought dialogue."><button id="dc-thought-add" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Append another thought symbol to the list.">+</button><button id="dc-thought-clear" class="menu_button" style="padding:2px 6px;font-size:0.8em;" data-help="Remove all thought symbols.">Clear</button></div>
                         <div style="display:flex;gap:4px;align-items:center;" title="How many messages from the end to inject the color prompt. Lower = closer to latest message. Try 1-4 if the model ignores colors."><label style="width:50px;">Depth:</label><input type="number" id="dc-prompt-depth" min="0" max="99" value="4" class="text_pole" style="width:60px;padding:3px;" data-help="How far from the chat end the system color prompt is injected."></div>
                         <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Role:</label><select id="dc-prompt-role" class="text_pole" style="flex:1;" data-help="System: inject as system message. User: inject as user message (stronger for some models with None/Merge post-processing)."><option value="system">System</option><option value="user">User</option></select></div>
-                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Mode:</label><select id="dc-prompt-mode" class="text_pole" style="flex:1;" data-help="Inject: auto-inject prompt at depth. Macro: use {{dialoguecolors}} in your prompt."><option value="inject">Inject (verbose)</option><option value="minimal">Inject (minimal)</option><option value="macro">Macro</option></select></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><label style="width:50px;">Mode:</label><select id="dc-prompt-mode" class="text_pole" style="flex:1;" data-help="Inject: auto-inject prompt at depth. Macro: use {{dialoguecolors}} in your prompt."><option value="minimal">Inject (minimal)</option><option value="inject">Inject (verbose)</option><option value="macro">Macro</option></select></div>
                         <div id="dc-system-prompt-container" style="display:none;margin-top:8px;">
                             <label style="font-weight:bold;margin-bottom:4px;display:block;">Add to your system prompt:</label>
                             <textarea id="dc-system-prompt-text" readonly class="text_pole" style="width:100%;min-height:60px;font-size:0.75em;font-family:monospace;resize:vertical;">{{dialoguecolors}}</textarea>
