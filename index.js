@@ -1969,7 +1969,7 @@
         }
 
         if (colorList) parts.push(`Established: ${colorList}.`);
-        if (reservedColors) parts.push(`Reserved: ${reservedColors}. New speakers need distinct colors.`);
+        if (reservedColors) parts.push(`${reservedColors} are taken. New speakers need distinct colors.`);
         if (aliases) parts.push(`Aliases: ${aliases}.`);
         if (!settings.disableNarration && settings.narratorColor) {
             parts.push(`Narrator: ${applyThemeReadabilityAndBrightness(settings.narratorColor)}.`);
@@ -2358,6 +2358,7 @@
     // Also fixes auto-lock inconsistency (2A) and adds group field (6B)
     function processColorPairs(pairsString) {
         let foundNew = false;
+        let hadRemapping = false;
         const colorPairs = pairsString.split(',');
         for (const pair of colorPairs) {
             const eqIdx = pair.indexOf('=');
@@ -2384,6 +2385,7 @@
                 if (!built.entry) continue;
                 characterColors[key] = built.entry;
                 foundNew = true;
+                if (built.remapped) hadRemapping = true;
             }
             if (nicknames.length) {
                 characterColors[key].aliases = characterColors[key].aliases || [];
@@ -2394,7 +2396,7 @@
                 });
             }
         }
-        return foundNew;
+        return { foundNew, hadRemapping };
     }
 
     function parseColorBlock(element) {
@@ -2404,7 +2406,8 @@
         let match, foundNew = false;
         // Parse from textContent for data extraction
         while ((match = colorBlockRegex.exec(mesText.textContent)) !== null) {
-            if (processColorPairs(match[1])) foundNew = true;
+            const result = processColorPairs(match[1]);
+            if (result.foundNew) foundNew = true;
         }
         stripColorBlockFromElement(mesText);
         return foundNew;
@@ -2438,7 +2441,7 @@
             const text = msg?.mes || '';
             let match;
             while ((match = colorBlockRegex.exec(text)) !== null) {
-                processColorPairs(match[1]);
+                processColorPairs(match[1]); // Return value not needed here
             }
         }
 
@@ -3049,12 +3052,19 @@
             const colorBlockRegex = /\[COLORS?:([^\]]*)\]/gi;
             let match;
             let foundColorBlock = false;
+            let hadRemapping = false;
             while ((match = colorBlockRegex.exec(text)) !== null) {
-                processColorPairs(match[1]);
+                const result = processColorPairs(match[1]);
                 foundColorBlock = true;
+                if (result.hadRemapping) hadRemapping = true;
             }
             saveData(); updateCharList(); injectPrompt();
             stripColorBlockFromElement(document.querySelector('.mes:last-child .mes_text'));
+
+            // Trigger immediate recolor if remapping occurred
+            if (hadRemapping && settings.autoRecolor) {
+                await recolorAllMessages();
+            }
 
             // Auto-colorize fallback: if model produced no color output at all
             if (!foundColorBlock && settings.autoColorize && !lastMsg.is_user && !isAutoColorizing) {
