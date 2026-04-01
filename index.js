@@ -1872,7 +1872,7 @@
     }
 
     function formatPromptLiteralSymbol(symbol) {
-        return `\`${String(symbol ?? '').replace(/`/g, '\\`')}\``;
+        return String(symbol ?? '');
     }
 
     function buildPromptInstruction() {
