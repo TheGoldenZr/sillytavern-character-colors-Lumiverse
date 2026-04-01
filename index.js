@@ -1915,7 +1915,7 @@
         parts.push('Give every newly introduced character a unique color.');
         parts.push('End your response with: [COLORS:Name=#RRGGBB,Name2=#RRGGBB] for all speakers.');
         if (!settings.disableNarration) parts.push('Include Narrator=#RRGGBB if narration is used.');
-        parts.push('Include nicknames as Name(Nick)=#RRGGBB.]');
+        parts.push('Include nicknames as Name(Nick)=#RRGGBB.');
         return parts.join(' ');
     }
 
@@ -1982,7 +1982,7 @@
             parts.push(`CSS effects: chaos=rotate(2deg) skew(5deg), magic=scale(1.2), unease=skew(-10deg), rage=uppercase, whispers=lowercase in <span style='transform:X; display:inline-block; background:transparent;'>text</span>.`);
         }
 
-        parts.push(`End with: [COLORS:Name=#RRGGBB,Name2=#RRGGBB${!settings.disableNarration ? ',Narrator=#RRGGBB' : ''},Name(Nick)=#RRGGBB]]`);
+        parts.push(`End with: [COLORS:Name=#RRGGBB,Name2=#RRGGBB${!settings.disableNarration ? ',Narrator=#RRGGBB' : ''},Name(Nick)=#RRGGBB]`);
 
         return parts.join(' ');
     }
