@@ -158,6 +158,11 @@
     let isColorizing = false;
     let isAutoColorizing = false;
     let brightnessRecolorTimer = null;
+    // Auto-sync state
+    let autoSyncEnabled = false;
+    let autoSyncInterval = null;
+    let autoSyncLastTimestamp = null;
+    let autoSyncSequence = 0;
 
     function parseStorageObject(key) {
         try {
@@ -1578,6 +1583,13 @@
             if (existingMenu) existingMenu.remove();
             const color = normalizeHexColor(fontTag.getAttribute('color'));
             const text = fontTag.textContent.substring(0, 30) + (fontTag.textContent.length > 30 ? '...' : '');
+
+            // Build character list for datalist
+            const charList = Object.entries(characterColors)
+                .map(([k, v]) => ({ key: k, name: v.name }))
+                .sort((a, b) => a.name.localeCompare(b.name));
+            const datalistOptions = charList.map(c => `<option value="${escapeAttr(c.name)}">`).join('');
+
             const menu = document.createElement('div');
             menu.id = 'dc-context-menu';
             const x = e.clientX ?? e.touches?.[0]?.clientX ?? 100;
@@ -1588,7 +1600,8 @@
                 <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
                     <span style="width:12px;height:12px;border-radius:50%;background:${color};"></span>
                     <input type="color" id="dc-ctx-color" value="${color}" style="width:24px;height:20px;border:none;">
-                    <input type="text" id="dc-ctx-name" placeholder="Character name" class="text_pole" style="flex:1;padding:3px;font-size:0.85em;">
+                    <input type="text" id="dc-ctx-name" list="dc-ctx-chars" placeholder="Character name (type to search)" class="text_pole" style="flex:1;padding:3px;font-size:0.85em;" autocomplete="off">
+                    <datalist id="dc-ctx-chars">${datalistOptions}</datalist>
                 </div>
                 <button id="dc-ctx-assign" class="menu_button" style="width:100%;margin-bottom:4px;">Assign to Character</button>
                 <button id="dc-ctx-close" class="menu_button" style="width:100%;">Cancel</button>
@@ -1617,6 +1630,8 @@
                         if (!built.entry) return;
                         characterColors[key] = built.entry;
                     }
+                    // Immediate recolor: update the clicked font tag
+                    fontTag.setAttribute('color', newColor);
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
                     toast.success(`Assigned to ${name}`);
                 }
@@ -1655,6 +1670,10 @@
         try {
             localStorage.setItem(getStorageKey(), JSON.stringify({ colors: characterColors, settings }));
             saveGlobalSettingsSnapshot();
+            // Trigger auto-sync if enabled
+            if (autoSyncEnabled) {
+                saveSettingsToFile();
+            }
         } catch (e) {
             toast.warning('Storage full — could not save color data. Try clearing unused chats or characters.');
         }
@@ -1773,6 +1792,178 @@
             }
         };
         reader.readAsText(file);
+    }
+
+    function exportSettings() {
+        const settingsData = {};
+        GLOBAL_SETTINGS_V2_KEYS.forEach(key => {
+            if (settings[key] !== undefined) settingsData[key] = settings[key];
+        });
+        const exportObj = {
+            version: COLOR_SCHEMA_VERSION,
+            timestamp: new Date().toISOString(),
+            settings: settingsData
+        };
+        const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `dc-settings-${Date.now()}.json`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        toast.success('Settings exported!');
+    }
+
+    function importSettings(file) {
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                const d = JSON.parse(e.target.result);
+                if (!d.settings || typeof d.settings !== 'object') {
+                    toast.error('Invalid settings file');
+                    return;
+                }
+                // Merge settings
+                Object.keys(d.settings).forEach(key => {
+                    if (GLOBAL_SETTINGS_V2_KEYS.includes(key)) {
+                        settings[key] = d.settings[key];
+                    }
+                });
+                normalizeToggleSettings();
+                saveData();
+                saveGlobalSettingsSnapshot();
+                updateCharList();
+                injectPrompt();
+                toast.success('Settings imported!');
+            } catch {
+                toast.error('Invalid settings file');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // Auto-sync functions
+    async function loadSettingsFromFile() {
+        try {
+            const response = await fetch('/scripts/extensions/third-party/sillytavern-character-colors/settings.json');
+            if (!response.ok) return;
+            const d = await response.json();
+            if (!d.settings || typeof d.settings !== 'object') return;
+
+            // Check if file is newer than our last sync
+            if (autoSyncLastTimestamp && d.timestamp <= autoSyncLastTimestamp) return;
+
+            Object.keys(d.settings).forEach(key => {
+                if (GLOBAL_SETTINGS_V2_KEYS.includes(key)) {
+                    settings[key] = d.settings[key];
+                }
+            });
+            autoSyncLastTimestamp = d.timestamp;
+            normalizeToggleSettings();
+            updateCharList();
+            injectPrompt();
+        } catch (e) {
+            // File doesn't exist yet or parse error - ignore
+        }
+    }
+
+    async function saveSettingsToFile() {
+        if (!autoSyncEnabled) return;
+        try {
+            const settingsData = {};
+            GLOBAL_SETTINGS_V2_KEYS.forEach(key => {
+                if (settings[key] !== undefined) settingsData[key] = settings[key];
+            });
+            autoSyncSequence++;
+            const timestamp = new Date().toISOString();
+            autoSyncLastTimestamp = timestamp;
+            const exportObj = {
+                version: COLOR_SCHEMA_VERSION,
+                timestamp: timestamp,
+                sequence: autoSyncSequence,
+                settings: settingsData
+            };
+
+            await fetch('/api/files/write', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: 'data/default-user/extensions/third-party/sillytavern-character-colors/settings.json',
+                    data: JSON.stringify(exportObj, null, 2)
+                })
+            });
+        } catch (e) {
+            // Silently fail
+        }
+    }
+
+    function enableAutoSync() {
+        autoSyncEnabled = true;
+        localStorage.setItem('dc_autosync_enabled', 'true');
+        startAutoSyncPolling();
+        saveSettingsToFile();
+        toast.success('Auto-sync enabled! Settings will sync across devices.');
+    }
+
+    function disableAutoSync() {
+        autoSyncEnabled = false;
+        localStorage.removeItem('dc_autosync_enabled');
+        stopAutoSyncPolling();
+        toast.info('Auto-sync disabled');
+    }
+
+    function startAutoSyncPolling() {
+        if (autoSyncInterval) return;
+        const pollInterval = document.hidden ? 30000 : 5000;
+        autoSyncInterval = setInterval(loadSettingsFromFile, pollInterval);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    function stopAutoSyncPolling() {
+        if (autoSyncInterval) {
+            clearInterval(autoSyncInterval);
+            autoSyncInterval = null;
+        }
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    function handleVisibilityChange() {
+        if (autoSyncEnabled) {
+            stopAutoSyncPolling();
+            startAutoSyncPolling();
+        }
+    }
+
+    function updateAutoSyncUI() {
+        const setupBtn = document.getElementById('dc-setup-autosync');
+        const disableBtn = document.getElementById('dc-disable-autosync');
+        const status = document.getElementById('dc-autosync-status');
+        if (!setupBtn || !disableBtn || !status) return;
+
+        if (autoSyncEnabled) {
+            setupBtn.style.display = 'none';
+            disableBtn.style.display = 'block';
+            status.textContent = '✓ Active';
+            status.style.color = 'var(--SmartThemeQuoteColor)';
+        } else {
+            setupBtn.style.display = 'block';
+            disableBtn.style.display = 'none';
+            status.textContent = '';
+        }
+    }
+
+    function initAutoSync() {
+        const enabled = localStorage.getItem('dc_autosync_enabled');
+        if (enabled === null) {
+            // First run - enable by default
+            autoSyncEnabled = true;
+            localStorage.setItem('dc_autosync_enabled', 'true');
+        } else {
+            autoSyncEnabled = enabled === 'true';
+        }
+        if (autoSyncEnabled) {
+            startAutoSyncPolling();
+            loadSettingsFromFile();
+        }
     }
 
     // Phase 7: Removed debug console.log statements
@@ -3516,6 +3707,9 @@
                         <div style="display:flex;gap:4px;align-items:center;"><select id="dc-preset-select" class="text_pole" style="flex:1;" data-help="Select a preset to load into or remove from this chat."><option value="">-- Select Preset --</option></select><button id="dc-load-preset" class="menu_button" style="padding:3px 8px;" title="Load preset" data-help="Load selected preset colors into current character list.">Load</button><button id="dc-delete-preset" class="menu_button" style="padding:3px 8px;" title="Delete preset" data-help="Delete the selected preset from local storage.">Del</button></div>
                         <hr style="margin:4px 0;opacity:0.15;">
                         <div style="display:flex;gap:4px;"><button id="dc-export" class="menu_button" style="flex:1;" data-help="Export colors and settings to a JSON file.">Export</button><button id="dc-import" class="menu_button" style="flex:1;" data-help="Import colors and settings from a JSON file.">Import</button><button id="dc-export-png" class="menu_button" style="flex:1;" title="Export legend as image" data-help="Export the floating legend as an image.">PNG</button></div>
+                        <div style="display:flex;gap:4px;"><button id="dc-export-settings" class="menu_button" style="flex:1;" data-help="Export only settings (no colors) to sync across devices.">Export Settings</button><button id="dc-import-settings" class="menu_button" style="flex:1;" data-help="Import settings from another device (preserves local colors).">Import Settings</button></div>
+                        <div style="display:flex;gap:4px;align-items:center;"><button id="dc-setup-autosync" class="menu_button" style="flex:1;" data-help="Enable automatic settings sync across all devices accessing this SillyTavern instance.">Enable Auto-Sync</button><button id="dc-disable-autosync" class="menu_button" style="flex:1;display:none;" data-help="Disable automatic settings synchronization.">Disable Auto-Sync</button><span id="dc-autosync-status" style="font-size:0.7em;opacity:0.6;"></span></div>
+                        <input type="file" id="dc-import-settings-file" accept=".json" style="display:none;">
                         <div style="display:flex;gap:4px;"><button id="dc-card" class="menu_button" style="flex:1;" title="Add from card" data-help="Add current card character to the color list if missing.">+Card</button><button id="dc-avatar-color" class="menu_button" style="flex:1;" title="Suggest color from avatar" data-help="Extract the dominant color from the current character avatar and assign it.">Avatar</button><button id="dc-save-card" class="menu_button" style="flex:1;" title="Save to card" data-help="Save this chat color data into character card extensions.">Save&rarr;Card</button><button id="dc-load-card" class="menu_button" style="flex:1;" title="Load from card" data-help="Load saved color data from character card extensions.">Card&rarr;Load</button></div>
                         <hr style="margin:4px 0;opacity:0.15;">
                         <div style="display:flex;gap:4px;"><button id="dc-lock-all" class="menu_button" style="flex:1;" title="Lock all characters" data-help="Lock every tracked character color.">🔒All</button><button id="dc-unlock-all" class="menu_button" style="flex:1;" title="Unlock all characters" data-help="Unlock every tracked character color.">🔓All</button><button id="dc-reset" class="menu_button" style="flex:1;" title="Reset to default colors" data-help="Reassign random palette colors to all unlocked characters (no name-based suggestions).">Reset</button></div>
@@ -3671,6 +3865,17 @@
         $('dc-import').onclick = () => $('dc-import-file').click();
         $('dc-export-png').onclick = exportLegendPng;
         $('dc-import-file').onchange = e => { if (e.target.files[0]) importColors(e.target.files[0]); };
+        $('dc-export-settings').onclick = exportSettings;
+        $('dc-import-settings').onclick = () => $('dc-import-settings-file').click();
+        $('dc-import-settings-file').onchange = e => { if (e.target.files[0]) importSettings(e.target.files[0]); };
+        $('dc-setup-autosync').onclick = () => {
+            enableAutoSync();
+            updateAutoSyncUI();
+        };
+        $('dc-disable-autosync').onclick = () => {
+            disableAutoSync();
+            updateAutoSyncUI();
+        };
         $('dc-del-locked').onclick = () => {
             const restore = createRestoreSnapshot();
             let count = 0;
@@ -3890,6 +4095,7 @@
 
     function init() {
         loadData();
+        initAutoSync();
         setTimeout(() => ensureRegexScript(), 1000);
         setupContextMenu();
         registerDialogueColorsMacro();
@@ -3935,6 +4141,7 @@
             if (document.getElementById('extensions_settings')) {
                 clearInterval(waitUI);
                 createUI();
+                updateAutoSyncUI();
                 clearDomCache();
                 injectPrompt();
                 populateProfileDropdown();

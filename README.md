@@ -13,7 +13,8 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 - **Auto-detect nicknames/usernames** - LLM can include nicknames in parentheses: `[COLORS:Alice(xX_Alice_Xx)=#FF0000]` - these are automatically added as character aliases
 - **Per-chat or global colors** - Store colors per character or share across all chats
 - **Auto-lock detected characters** - Automatically lock newly detected characters (default: on)
-- **Right-click/long-press** - Tap and hold (mobile) or right-click (desktop) on colored dialogue to assign it to a character (default: off)
+- **Right-click/long-press reassignment** - Right-click (desktop) or long-press (mobile) on colored dialogue to reassign it to a different character with searchable dropdown (default: off)
+- **Auto-sync settings** - Settings automatically sync across all devices accessing the same SillyTavern instance (enabled by default)
 
 ### Color Management
 - **Color lock** 🔒 - Lock a character's color to prevent changes
@@ -23,6 +24,7 @@ A SillyTavern extension that makes the LLM color-code each character's dialogue 
 - **Theme flip** ☀/🌙 - Instantly flip all colors between dark↔light suited variants
 - **Undo/Redo** ↶↷ - Full history with Ctrl+Z/Y shortcuts
 - **Export/Import** - Save and load color schemes as JSON
+- **Settings sync** - Export/import settings separately, or enable auto-sync to share settings across devices
 - **Export as PNG** - Generate a theme-aware visual legend image (dark/light background)
 - **Color presets** - Save, load, and delete presets via dropdown UI
 - **Recolor messages** - Rewrite all existing message colors to match current assignments after changing a character's color
@@ -73,6 +75,11 @@ Effects are visible in chat but stripped from the prompt context.
 - **Dialogue count badges** - ⭐ (50+), 💎 (100+) for frequent speakers
 - **Collapsible UI sections** - Settings organized into Display, Behavior, Actions, and Characters sections
 - **Mobile-optimized** - Larger touch targets and responsive layout on small screens
+
+## What's New in 4.1.0
+
+- **Right-click character reassignment** — Right-click colored dialogue to reassign it to a different character using a searchable dropdown of existing characters. Color updates immediately in chat. No more manual HTML editing for misattributions!
+- **Settings sync** — Export/import settings separately from color data, or enable auto-sync (on by default) to automatically share settings across all devices accessing the same SillyTavern instance. Perfect for PC + mobile via Tailscale.
 
 ## What's New in 4.0.0
 
