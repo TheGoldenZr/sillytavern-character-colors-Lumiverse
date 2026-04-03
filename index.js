@@ -1611,18 +1611,39 @@
             if (menuRect.right > window.innerWidth) menu.style.left = (window.innerWidth - menuRect.width - 8) + 'px';
             if (menuRect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - menuRect.height - 8) + 'px';
             menu.querySelector('#dc-ctx-close').onclick = () => menu.remove();
+
+            const nameInput = menu.querySelector('#dc-ctx-name');
+            const colorInput = menu.querySelector('#dc-ctx-color');
+
+            nameInput.addEventListener('input', () => {
+                const name = nameInput.value.trim();
+                const key = name.toLowerCase();
+                if (characterColors[key]) {
+                    const existingColor = getEntryEffectiveColor(characterColors[key]);
+                    colorInput.value = existingColor;
+                }
+            });
+
             menu.querySelector('#dc-ctx-assign').onclick = () => {
                 const nameInput = menu.querySelector('#dc-ctx-name');
                 const colorInput = menu.querySelector('#dc-ctx-color');
                 const name = nameInput.value.trim();
-                const newColor = normalizeHexColor(colorInput.value, color);
+                const pickerColor = normalizeHexColor(colorInput.value, color);
                 if (name) {
                     const key = name.toLowerCase();
+                    const originalColor = normalizeHexColor(fontTag.getAttribute('color'));
+                    let finalColor = pickerColor;
+                    let textUpdated = false;
+
                     if (characterColors[key]) {
-                        setEntryFromEffectiveColor(characterColors[key], newColor);
+                        const existingColor = getEntryEffectiveColor(characterColors[key]);
+                        if (normalizeHexColor(pickerColor) !== normalizeHexColor(existingColor)) {
+                            setEntryFromEffectiveColor(characterColors[key], pickerColor);
+                        }
+                        finalColor = pickerColor;
                     } else {
                         const built = buildCharacterEntry(name, {
-                            color: newColor,
+                            color: pickerColor,
                             colorMode: 'effective',
                             locked: false,
                             dialogueCount: 1
@@ -1630,9 +1651,19 @@
                         if (!built.entry) return;
                         characterColors[key] = built.entry;
                     }
-                    // Immediate recolor: update the clicked font tag
-                    fontTag.setAttribute('color', newColor);
+
+                    fontTag.setAttribute('color', finalColor);
+                    textUpdated = updateMessageTextForFontTag(fontTag, originalColor, finalColor);
+
                     saveHistory(); saveData(); updateCharList(); injectPrompt();
+
+                    if (textUpdated) {
+                        const ctx = getContext();
+                        if (typeof ctx?.saveChat === 'function') {
+                            ctx.saveChat().catch(err => console.error('Failed to save chat:', err));
+                        }
+                    }
+
                     toast.success(`Assigned to ${name}`);
                 }
                 menu.remove();
@@ -1660,6 +1691,38 @@
 
         document.addEventListener('touchend', () => { clearTimeout(longPressTimer); longPressTimer = null; });
         document.addEventListener('touchmove', () => { clearTimeout(longPressTimer); longPressTimer = null; });
+    }
+
+    function updateMessageTextForFontTag(fontTag, oldColor, newColor) {
+        const mesEl = fontTag.closest('.mes');
+        if (!mesEl) return false;
+
+        const messageEls = Array.from(document.querySelectorAll('.mes'));
+        const msgIndex = messageEls.indexOf(mesEl);
+        if (msgIndex === -1) return false;
+
+        const ctx = getContext();
+        const chat = ctx?.chat || [];
+        const msg = chat[msgIndex];
+        if (!msg || msg.is_user) return false;
+
+        const oldHex = normalizeHexColor(oldColor);
+        const newHex = normalizeHexColor(newColor);
+        if (oldHex === newHex) return false;
+
+        const fontTagRegex = /<font\b[^>]*\bcolor\s*=\s*["']?(#[0-9a-fA-F]{6})["']?[^>]*>/gi;
+        let updated = msg.mes.replace(fontTagRegex, (match, colorHex) => {
+            if (normalizeHexColor(colorHex) === oldHex) {
+                return match.replace(/(\bcolor\s*=\s*["']?)(#[0-9a-fA-F]{6})(["']?)/i, `$1${newHex}$3`);
+            }
+            return match;
+        });
+
+        if (updated !== msg.mes) {
+            msg.mes = updated;
+            return true;
+        }
+        return false;
     }
 
     function saveData() {
