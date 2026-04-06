@@ -1,8 +1,8 @@
 {
   "version": "4.1.0",
   "name": "Lumiverse-character-colors",
-  "identifier": "platberlitz-extension",
-  "author": "platberlitz extension",
+  "identifier": "a extension made to work within Lumiverse.",
+  "author": "platberlitz",
   "github": "https://github.com/TheGoldenZr/sillytavern-character-colors-Lumiverse",
   "homepage": "https://example.com",
   "description": "A SillyTavern extension that makes the LLM color-code each character's dialogue automatically. Instantly see who's speaking at a glance with LLM-driven character detection, colorblind-friendly palettes, and optional CSS effects for dramatic text..",
